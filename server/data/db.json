@@ -1,0 +1,345 @@
+{
+  "config": {
+    "name": "DCAS Sports Meet 2026",
+    "houses": [
+      "Falcon",
+      "Phoenix",
+      "Titan",
+      "Spartan",
+      "Gladiators"
+    ],
+    "maxEventsPerStudent": 3,
+    "categories": [
+      "Athletics",
+      "Games"
+    ],
+    "genders": [
+      "Boys",
+      "Girls"
+    ],
+    "categoryPoints": {
+      "Athletics": [
+        7,
+        4,
+        2
+      ],
+      "Games": [
+        12,
+        8,
+        4
+      ]
+    },
+    "defaultPoints": [
+      5,
+      3,
+      1
+    ]
+  },
+  "events": [
+    {
+      "id": "ath-100m-boys",
+      "name": "100m Sprint",
+      "category": "Athletics",
+      "gender": "Boys",
+      "type": "track",
+      "points": [
+        5,
+        3,
+        1
+      ]
+    },
+    {
+      "id": "ath-200m-boys",
+      "name": "200m Sprint",
+      "category": "Athletics",
+      "gender": "Boys",
+      "type": "track",
+      "points": [
+        5,
+        3,
+        1
+      ]
+    },
+    {
+      "id": "ath-400m-boys",
+      "name": "400m Race",
+      "category": "Athletics",
+      "gender": "Boys",
+      "type": "track",
+      "points": [
+        5,
+        3,
+        1
+      ]
+    },
+    {
+      "id": "ath-longjump-boys",
+      "name": "Long Jump",
+      "category": "Athletics",
+      "gender": "Boys",
+      "type": "field",
+      "points": [
+        5,
+        3,
+        1
+      ]
+    },
+    {
+      "id": "ath-shotput-boys",
+      "name": "Shot Put",
+      "category": "Athletics",
+      "gender": "Boys",
+      "type": "field",
+      "points": [
+        5,
+        3,
+        1
+      ]
+    },
+    {
+      "id": "ath-relay-boys",
+      "name": "4x100m Relay",
+      "category": "Athletics",
+      "gender": "Boys",
+      "type": "team",
+      "points": [
+        5,
+        3,
+        1
+      ]
+    },
+    {
+      "id": "ath-100m-girls",
+      "name": "100m Sprint",
+      "category": "Athletics",
+      "gender": "Girls",
+      "type": "track",
+      "points": [
+        5,
+        3,
+        1
+      ]
+    },
+    {
+      "id": "ath-200m-girls",
+      "name": "200m Sprint",
+      "category": "Athletics",
+      "gender": "Girls",
+      "type": "track",
+      "points": [
+        5,
+        3,
+        1
+      ]
+    },
+    {
+      "id": "ath-longjump-girls",
+      "name": "Long Jump",
+      "category": "Athletics",
+      "gender": "Girls",
+      "type": "field",
+      "points": [
+        5,
+        3,
+        1
+      ]
+    },
+    {
+      "id": "ath-highjump-girls",
+      "name": "High Jump",
+      "category": "Athletics",
+      "gender": "Girls",
+      "type": "field",
+      "points": [
+        5,
+        3,
+        1
+      ]
+    },
+    {
+      "id": "ath-shotput-girls",
+      "name": "Shot Put",
+      "category": "Athletics",
+      "gender": "Girls",
+      "type": "field",
+      "points": [
+        5,
+        3,
+        1
+      ]
+    },
+    {
+      "id": "ath-relay-girls",
+      "name": "4x100m Relay",
+      "category": "Athletics",
+      "gender": "Girls",
+      "type": "team",
+      "points": [
+        5,
+        3,
+        1
+      ]
+    },
+    {
+      "id": "game-football-boys",
+      "name": "Football",
+      "category": "Games",
+      "gender": "Boys",
+      "type": "team",
+      "points": [
+        10,
+        6,
+        2
+      ]
+    },
+    {
+      "id": "game-volleyball-boys",
+      "name": "Volleyball",
+      "category": "Games",
+      "gender": "Boys",
+      "type": "team",
+      "points": [
+        10,
+        6,
+        2
+      ]
+    },
+    {
+      "id": "game-cricket-boys",
+      "name": "Cricket",
+      "category": "Games",
+      "gender": "Boys",
+      "type": "team",
+      "points": [
+        10,
+        6,
+        2
+      ]
+    },
+    {
+      "id": "game-tugofwar-boys",
+      "name": "Tug of War",
+      "category": "Games",
+      "gender": "Boys",
+      "type": "team",
+      "points": [
+        10,
+        6,
+        2
+      ]
+    },
+    {
+      "id": "game-badminton-boys",
+      "name": "Badminton",
+      "category": "Games",
+      "gender": "Boys",
+      "type": "court",
+      "points": [
+        10,
+        6,
+        2
+      ]
+    },
+    {
+      "id": "game-throwball-girls",
+      "name": "Throwball",
+      "category": "Games",
+      "gender": "Girls",
+      "type": "team",
+      "points": [
+        10,
+        6,
+        2
+      ]
+    },
+    {
+      "id": "game-volleyball-girls",
+      "name": "Volleyball",
+      "category": "Games",
+      "gender": "Girls",
+      "type": "team",
+      "points": [
+        10,
+        6,
+        2
+      ]
+    },
+    {
+      "id": "game-badminton-girls",
+      "name": "Badminton",
+      "category": "Games",
+      "gender": "Girls",
+      "type": "court",
+      "points": [
+        10,
+        6,
+        2
+      ]
+    },
+    {
+      "id": "game-tugofwar-girls",
+      "name": "Tug of War",
+      "category": "Games",
+      "gender": "Girls",
+      "type": "team",
+      "points": [
+        10,
+        6,
+        2
+      ]
+    },
+    {
+      "id": "game-tabletennis-girls",
+      "name": "Table Tennis",
+      "category": "Games",
+      "gender": "Girls",
+      "type": "court",
+      "points": [
+        10,
+        6,
+        2
+      ]
+    },
+    {
+      "id": "gam-basketball-3x3-boys-nqyf",
+      "name": "Basketball 3x3",
+      "category": "Games",
+      "gender": "Boys",
+      "type": "team",
+      "points": [
+        15,
+        10,
+        5
+      ]
+    }
+  ],
+  "regs": [
+    {
+      "id": "17951108751139n6j9",
+      "reg": "21BCA99",
+      "name": "John Doe",
+      "house": "Falcon",
+      "gender": "Boys",
+      "eventId": "ath-100m-boys",
+      "registeredAt": "2026-11-19T17:54:35.113Z"
+    },
+    {
+      "id": "1795110875113db7nv",
+      "reg": "21BCA99",
+      "name": "John Doe",
+      "house": "Falcon",
+      "gender": "Boys",
+      "eventId": "gam-basketball-3x3-boys-nqyf",
+      "registeredAt": "2026-11-19T17:54:35.113Z"
+    }
+  ],
+  "scores": [],
+  "results": {
+    "ath-100m-boys": {
+      "places": [
+        "21BCA99"
+      ],
+      "at": "2026-11-19T17:54:35.122Z"
+    }
+  }
+}

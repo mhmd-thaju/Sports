@@ -1,0 +1,52 @@
+@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800;900&family=Open+Sans:wght@400;500;600;700;800&display=swap");
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Open Sans", sans-serif;
+  --font-display: "Barlow Condensed", sans-serif;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: #f7f8fb;
+    color: #263948;
+    font-family: "Open Sans", sans-serif;
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  ::selection {
+    background: #f47b00;
+    color: white;
+  }
+}
+
+@layer components {
+  .font-display {
+    font-family: "Barlow Condensed", sans-serif;
+    font-weight: 800;
+  }
+
+  .eyebrow {
+    color: #e63516;
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0.24em;
+    text-transform: uppercase;
+  }
+
+  .section-title {
+    font-family: "Barlow Condensed", sans-serif;
+    font-size: clamp(4rem, 8vw, 7rem);
+    font-weight: 800;
+    letter-spacing: -0.025em;
+    line-height: 0.83;
+    text-transform: uppercase;
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "DCAS Sports Meet 2026",
+  "houses": ["Falcon", "Phoenix", "Titan", "Spartan"],
+  "maxEventsPerStudent": 3,
+  "categories": ["Athletics", "Games"],
+  "genders": ["Boys", "Girls"],
+  "categoryPoints": {
+    "Athletics": [5, 3, 1],
+    "Games": [10, 6, 2]
+  },
+  "defaultPoints": [5, 3, 1]
+}

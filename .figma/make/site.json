@@ -1,0 +1,10 @@
+{
+  "description": "Follow a college sports meet with event results, winner highlights, points tables, and a photo gallery for students, athletes, and supporters.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
