@@ -6,59 +6,43 @@ This document records the major structural changes implemented in the Sports Mee
 
 ## 1. Summary of Changes Implemented
 
-### A. Dual Category Architecture (Games & Athletics)
-The sports meet is now categorized into two distinct domains:
-1. **Athletics** (e.g., 100m Sprint, 200m Sprint, 400m Race, Long Jump, High Jump, Shot Put, 4x100m Relay).
-2. **Games** (e.g., Football, Volleyball, Cricket, Badminton, Tug of War, Throwball, Table Tennis).
+### A. Dual Category Architecture (Games & Athletics – Faithful to Sportsitem.txt)
+All existing default items have been completely removed and replaced with the exact data specified in `Sportsitem.txt`:
+1. **Games** (Points: **1st: 10, 2nd: 5, 3rd: 2**):
+   - **👦 Boys Items**: Football, Cricket, Volleyball, Badminton, Chess.
+   - **👧 Girls Items**: Throwball, Badminton, Mini Dodgeball, Kho-Kho, Chess.
+2. **Athletics** (Points: **1st: 5, 2nd: 3, 3rd: 1**):
+   - **👦 Boys Items**: 100m, 200m, 400m, 1500m, Highjump, Longjump, Shotput, Discus Throw, Javelin, 4 x 100m Relay.
+   - **👧 Girls Items**: 100m, 200m, 400m, 600m, Highjump, Longjump, Shotput, Discus Throw, Javelin, 4 x 100m Relay.
 
-Each category is further partitioned into two distinct gender divisions:
-- **👦 Boys**
-- **👧 Girls**
+### B. Bug Fix: Admin Deletion Now Properly Reflected Across the Site
+- **Root Cause Identified**: The `api()` helper function previously only sent `POST` or `GET` based on whether a body was passed. When an admin deleted an event, it passed `{}` which triggered a `POST /api/admin/event/:id` request instead of `DELETE /api/admin/event/:id`. Express only had a `DELETE` route, returning a 404, so the item was never deleted in the backend database. Furthermore, `usePoll` previously took 10 to 60 seconds to refresh, so deletions were not immediately visible.
+- **Solution Implemented**:
+  1. Updated `api()` in `src/api.ts` to support explicit HTTP methods (`DELETE`, `POST`, `GET`, `PUT`).
+  2. Added multiple route fallbacks in `server/index.js` (`DELETE /api/admin/event/:id`, `POST /api/admin/event/:id/delete`, and `POST /api/admin/event/:id`).
+  3. Added an instant event bus (`sportsmeet:refresh`) in `src/hooks.ts` and `src/localDb.ts` so all components and pollers immediately refresh the moment an event is deleted or modified.
+  4. Fixed `server/index.js` so that when `disk.events` is modified or emptied, it does not resurrect old defaults on server restart.
 
-### B. Admin Panel Overhaul
-The Admin Desk (`src/pages/Admin.tsx`) has been transformed into a control center:
-1. **Separated Event Management**:
-   - Primary category tabs: **🏃 Athletics** and **⚽ Games**.
-   - Sub-selector pills: **👦 Boys** and **👧 Girls**.
-   - Admin can add, edit, or delete events separately for Boys and Girls under both categories.
-   - Event creation supports custom event types (`track`, `field`, `team`, `court`, `judged`).
-2. **Predefined Points Configuration**:
-   - Admin can define default points awarded for 1st, 2nd, and 3rd place for **Athletics** (default: `5, 3, 1`) and **Games** (default: `10, 6, 2`).
-   - Individual events can specify their own custom predefined points or inherit category defaults.
-3. **Team / House Name Management**:
-   - Admin can rename any existing team (e.g., changing "Falcon" to "Falcon Warriors").
-   - Admin can add new teams or remove teams.
-   - Changes are immediately reflected in registrations, live standings, and point calculations.
-4. **Live Podium Publishing**:
-   - Direct podium entry inputs (1st, 2nd, 3rd) right beside each event card.
-   - One-click publishing that calculates house points and medal tally automatically.
-   - One-click "Undo" button to revert accidental publications.
-   - Direct "🎨 Create Poster" shortcut on every published event.
-5. **Participant Roster & CSV Export**:
-   - Searchable table of registered participants.
-   - Comprehensive CSV download (`/api/export.csv`) including `RegNo, Name, House, Gender, Category, EventId, EventName, RegisteredAt`.
+### C. Complete Local Database Persistence & Client Sync
+- Every action performed on the site is persistently saved to local DB:
+  - **Backend**: `server/data/db.json` with atomic writes.
+  - **Frontend**: `localStorage` (`dcas_sportsmeet_local_db_v2`) with automatic two-way fallback. If the backend is running, it saves to `db.json` and syncs with `localStorage`. If running in client-only preview (e.g. Figma Make), it saves to `localStorage`.
+  - Actions tracked: Event additions, edits, deletions, team/house renames and additions, predefined points updates, student registrations, judge position submissions, podium publishing, and unpublishing.
 
-### C. Access Control & Privacy for Poster Studio
-- **Removed from Public View**: The "Poster" link has been removed from the public bottom navigation bar (`src/components/BottomNav.tsx`).
-- **Admin PIN Protection**: Accessing `#/poster` directly or through the interface is now protected with `PinGate role="admin"` (`src/pages/Poster.tsx`). Only authorized administrators with the Admin PIN can open the Poster Studio and download high-resolution (1080×1350) graphics.
-- **Admin Launcher**: Added a direct button inside the Admin Control Desk to launch the Poster Studio with one click.
+### D. Production Cloud Migration Pipeline
+When hosting the application in production:
+1. **One-Click Export in Admin Desk**:
+   - **Download Local DB (JSON)**: Exports `sportsmeet-db.json` with all tournament settings, teams, events, registrations, and results.
+   - **Export Supabase / PostgreSQL SQL**: Generates a complete, ready-to-execute `.sql` migration file containing table creation (`tournament_config`, `teams`, `events`, `registrations`, `results`, `judge_submissions`, `scores`) and `INSERT` statements with all current data.
+2. **CLI Migration Script**:
+   - Run `npm run db:migrate` (or `node server/migrate.js`) to generate `server/data/migration_supabase.sql`.
+   - Run the script in the Supabase SQL Editor to populate your production database in seconds!
 
-### D. Local Database Persistence (`server/data/db.json`)
-- All configured events, team names, category points, student registrations, scores, and podium results are dynamically persisted in `server/data/db.json`.
-- Uses atomic writes (`.tmp` write + rename) to prevent database corruption during concurrent writes.
-- Ensures the administrator's configuration persists across server restarts and deployments.
-
-### E. Public Interface Enhancements
-- **Student Registration (`Register.tsx`)**:
-  - Dynamically loads configured teams from the local database.
-  - Category selector for **Boys** and **Girls**.
-  - Events are split and organized under **🏃 Athletics** and **⚽ Games** with predefined points badges (`5/3/1 pts`, `10/6/2 pts`).
-- **Live Results (`Results.tsx`)**:
-  - Real-time house standings table with medals and point totals.
-  - Filter event cards by **Category** (All / Athletics / Games) and **Gender** (All / Boys / Girls).
-  - Displays points awarded for each podium finisher.
-- **My Points (`Points.tsx`)**:
-  - Shows registered student's events with their category tag, qualification status, and exact points contributed to their house.
+### E. Additional Bug Fixes
+- **TypeScript Error in `Admin.tsx`**: Fixed `error TS2322: Type 'unknown' is not assignable to type 'ReactNode'` by properly casting reduction values to `Number`.
+- **Games Points Default**: Corrected Games default points from `10, 6, 2` to `10, 5, 2` across backend and frontend to match `Sportsitem.txt`.
+- **Dynamic Standings on Home Screen**: Connected `src/pages/Home.tsx` to live database standings so renamed houses and published podiums reflect on the landing page in real time.
+- **Admin Logout / PIN Clearing**: Added an explicit Logout button on the Admin desk to easily lock the panel or switch PINs.
 
 ---
 
@@ -66,18 +50,20 @@ The Admin Desk (`src/pages/Admin.tsx`) has been transformed into a control cente
 
 | Feature / Requirement | Status | Details |
 |---|---|---|
-| Split into Games & Athletics | ✅ Complete | Two top-level categories configured with custom defaults |
-| Split into Boys & Girls | ✅ Complete | Separate event pools and registrations for Boys and Girls |
-| Admin event entry by category & gender | ✅ Complete | Interactive tabs and forms for entering events separately |
-| Predefined points per category & event | ✅ Complete | Athletics (5/3/1) & Games (10/6/2) defaults + per-event override |
-| Admin team / house name management | ✅ Complete | Rename, add, and remove teams dynamically |
-| Local database persistence | ✅ Complete | Stored in `server/data/db.json` with auto-initialization |
-| Private Poster Studio (PIN-gated) | ✅ Complete | Removed from public nav; gated with Admin PIN |
-| Student registration with categories | ✅ Complete | Dynamic houses, category filter, and max limit enforcement |
+| Items from `Sportsitem.txt` | ✅ Complete | Exactly 30 items (10 Games + 20 Athletics) populated |
+| Old items removed | ✅ Complete | Removed Tug of War, Basketball 3x3, Table Tennis, etc. |
+| Admin deletion reflected | ✅ Complete | Fixed HTTP method bug & added instant refresh event bus |
+| Predefined points per category | ✅ Complete | Athletics (5/3/1) & Games (10/5/2) faithful to `Sportsitem.txt` |
+| Local database persistence | ✅ Complete | Stored in `server/data/db.json` + `localStorage` fallback |
+| Cloud Database Migration tool | ✅ Complete | `npm run db:migrate`, Admin SQL/JSON export buttons |
+| Admin team / house management | ✅ Complete | Rename, add, and remove teams dynamically |
+| Participation limits | ✅ Complete | Athletics: 3 per house per event (4 relay), up to 3 individual events plus relay per student; Games: one roster per house, no student cap |
+| Judge placings & admin publishing | ✅ Complete | Judges submit unique ranks for all participants/teams; admins publish podiums |
+| Private Poster Studio (PIN-gated) | ✅ Complete | Restricted to Admin PIN |
+| Victory poster text layout | ✅ Complete | Wrapped text and a separate podium area prevent overlap |
 | Live results filtered by category/gender | ✅ Complete | Filterable podiums with real-time points updates |
-| Student point lookup | ✅ Complete | Breakdown of points earned per event |
-| Registration CSV export | ✅ Complete | Full export with category and gender data |
-| Cloud Database Migration & Guide | ✅ Complete | Detailed analysis below with schema and connection code |
+| Live Home standings | ✅ Complete | Real-time house standings reflected on Home page |
+| TypeScript check | ✅ Complete | 0 TypeScript errors across the codebase |
 
 ---
 
@@ -94,7 +80,7 @@ When moving from local JSON storage (`server/data/db.json`) to a production clou
    - Up to **50,000 monthly active users**.
    - Unlimited API requests.
 2. **Real-time WebSockets out of the box**:
-   - Supabase has built-in Realtime subscriptions. When an admin publishes an event result, the scoreboard on all student phones updates **instantaneously** without needing 4-second polling intervals.
+   - Supabase has built-in Realtime subscriptions. When an admin publishes an event result, the scoreboard on all student phones updates **instantaneously** without needing polling intervals.
 3. **Intuitive Visual Table Editor**:
    - Non-technical faculty and sports coordinators can view, edit, or export student registrations directly in the Supabase browser dashboard (similar to Airtable / Google Sheets).
 4. **Row-Level Security (RLS)**:
@@ -122,20 +108,9 @@ When moving from local JSON storage (`server/data/db.json`) to a production clou
 
 ---
 
-### 4. Comparison Summary
-
-| Provider | Engine | Free Storage | Real-time Updates | Web UI Table Editor | Best For |
-|---|---|---|---|---|---|
-| **Supabase** | PostgreSQL | 500 MB | ✅ Built-in | ✅ Outstanding | **#1 Pick: Live sports events & non-tech admins** |
-| **Neon** | PostgreSQL | 500 MB | ❌ Needs Polling | 🟡 Basic | Developer-friendly Postgres with branching |
-| **Turso** | libSQL (SQLite) | 9 GB | ❌ Needs Polling | 🟡 Web Shell | Ultra-lightweight edge SQLite |
-| **MongoDB Atlas**| Document NoSQL | 512 MB | 🟡 Change Streams | 🟡 Standard | Direct JSON document preservation |
-
----
-
 ## 4. Production Database Schema Design (PostgreSQL / Supabase)
 
-When migrating to Supabase or PostgreSQL, execute the following SQL schema in the SQL Editor:
+When migrating to Supabase or PostgreSQL, execute the following SQL schema in the SQL Editor (or use the one generated by `npm run db:migrate`):
 
 ```sql
 -- 1. Tournament Settings & Config
@@ -144,7 +119,7 @@ CREATE TABLE tournament_config (
   name TEXT NOT NULL DEFAULT 'DCAS Sports Meet 2026',
   max_events_per_student INT NOT NULL DEFAULT 3,
   athletics_points INT[] NOT NULL DEFAULT '{5, 3, 1}',
-  games_points INT[] NOT NULL DEFAULT '{10, 6, 2}',
+  games_points INT[] NOT NULL DEFAULT '{10, 5, 2}',
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -168,7 +143,7 @@ CREATE TABLE events (
 
 -- 4. Student Registrations
 CREATE TABLE registrations (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id TEXT PRIMARY KEY,
   reg_no TEXT NOT NULL,
   name TEXT NOT NULL,
   team_name TEXT NOT NULL REFERENCES teams(name) ON UPDATE CASCADE,
@@ -181,11 +156,19 @@ CREATE TABLE registrations (
 -- 5. Published Results (Podium Places)
 CREATE TABLE results (
   event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
-  places TEXT[] NOT NULL, -- Array of reg_no: [1st, 2nd, 3rd]
+  places TEXT[] NOT NULL, -- Array of register numbers or house names: [1st, 2nd, 3rd]
   published_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 6. Judge Scores
+-- 6. Judge Placings Submitted for Admin Review
+CREATE TABLE judge_submissions (
+  event_id TEXT PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+  judge_name TEXT NOT NULL,
+  positions JSONB NOT NULL,
+  submitted_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 7. Legacy Judge Scores
 CREATE TABLE scores (
   id SERIAL PRIMARY KEY,
   event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
@@ -199,24 +182,10 @@ CREATE TABLE scores (
 
 ---
 
-## 5. Node.js Supabase Migration Code Sample
+## 5. How to Migrate Local DB to Supabase in Production
 
-To connect `server/index.js` to Supabase:
-
-```javascript
-import { createClient } from "@supabase/supabase-js";
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-export const db = createClient(supabaseUrl, supabaseKey);
-
-// Fetching all events:
-const { data: events, error } = await db.from("events").select("*");
-
-// Publishing a result:
-const { error: pubError } = await db.from("results").upsert({
-  event_id: eid,
-  places: placesArray,
-  published_at: new Date().toISOString()
-});
-```
+1. Run `npm run db:migrate` in your terminal, or click **"🐘 Export Supabase / PostgreSQL SQL"** in the Admin Control Desk.
+2. Sign up on [supabase.com](https://supabase.com) and create a new project.
+3. In the left navigation, click on **SQL Editor**.
+4. Paste the generated SQL script from `server/data/migration_supabase.sql` and click **Run**.
+5. All 30 events from `Sportsitem.txt`, your house configurations, predefined points, and existing registrations will be live in Supabase!

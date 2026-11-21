@@ -1,12 +1,35 @@
 {
   "name": "DCAS Sports Meet 2026",
-  "houses": ["Falcon", "Phoenix", "Titan", "Spartan"],
+  "houses": [
+    "BCom Co-operation",
+    "BA Economics",
+    "BCom Finance & BBA",
+    "GDA, BCA & Psychology"
+  ],
   "maxEventsPerStudent": 3,
-  "categories": ["Athletics", "Games"],
-  "genders": ["Boys", "Girls"],
+  "categories": [
+    "Athletics",
+    "Games"
+  ],
+  "genders": [
+    "Boys",
+    "Girls"
+  ],
   "categoryPoints": {
-    "Athletics": [5, 3, 1],
-    "Games": [10, 6, 2]
+    "Athletics": [
+      5,
+      3,
+      1
+    ],
+    "Games": [
+      10,
+      5,
+      2
+    ]
   },
-  "defaultPoints": [5, 3, 1]
+  "defaultPoints": [
+    5,
+    3,
+    1
+  ]
 }

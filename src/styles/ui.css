@@ -12,7 +12,6 @@
 }
 
 body {
-  padding-bottom: 72px;
   background-color: #f5f6f9;
   color: #1e293b;
 }
@@ -71,7 +70,7 @@ body {
   margin-inline: auto;
 }
 
-.grid {
+.legacy-grid {
   display: grid;
   gap: 16px;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -382,6 +381,23 @@ th {
   border-radius: 12px;
   justify-self: center;
   box-shadow: 0 8px 24px rgba(0, 38, 86, 0.15);
+}
+.poster-portrait-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.poster-portrait-controls label {
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-subtle);
+}
+.poster-portrait-controls input {
+  padding: 8px;
+  font-size: 0.75rem;
 }
 @media (min-width: 900px) {
   .poster {

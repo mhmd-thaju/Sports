@@ -1,31 +1,48 @@
 import { useEffect, useState } from "react";
+import { trackGalleryActivity } from "../api";
+import { usePoll } from "../hooks";
+import { SPORTSITEM_EVENTS, type ScheduleItem } from "../localDb";
+import { sortGalleryPhotos } from "../galleryUtils";
 
-const photos = [
-  {
-    src: "https://images.unsplash.com/photo-1502904550040-7534597429ae?auto=format&fit=crop&w=1600&q=85",
-    alt: "Student athletes racing around a stadium track",
-    label: "Track Finals",
-    className: "md:col-span-2 md:row-span-2",
-  },
-  {
-    src: "https://images.unsplash.com/photo-1532444458054-01a7dd3e9fca?auto=format&fit=crop&w=1000&q=85",
-    alt: "Athletes sprinting together on a track",
-    label: "100m Sprint",
-    className: "",
-  },
-  {
-    src: "https://images.unsplash.com/photo-1457470572216-1240fac24b37?auto=format&fit=crop&w=1000&q=85",
-    alt: "Low angle view across a running track",
-    label: "The Arena",
-    className: "",
-  },
-  {
-    src: "/dcas-campus.jpg",
-    alt: "Aerial view of the Duxford College campus and sports ground",
-    label: "Our Campus",
-    className: "md:col-span-2",
-  },
-];
+type DisplayWinner = {
+  event: string;
+  category: string;
+  name: string;
+  house: string;
+  result: string;
+  initials: string;
+  accent: string;
+  picture?: string;
+};
+
+const houseColors: Record<string, string> = {
+  "BCom Co-operation": "#f47b00",
+  "BA Economics": "#f5c84b",
+  "BCom Finance & BBA": "#1db8a3",
+  "GDA, BCA & Psychology": "#6e8bf5",
+  "Falcon": "#f47b00",
+  "Phoenix": "#f5c84b",
+  "Titan": "#1db8a3",
+  "Spartan": "#6e8bf5",
+};
+const defaultColors = ["#f47b00", "#f5c84b", "#1db8a3", "#6e8bf5", "#9333ea", "#ec4899"];
+
+const heroPhoto = "https://images.unsplash.com/photo-1502904550040-7534597429ae?auto=format&fit=crop&w=1600&q=85";
+const campusPhoto = {
+  id: "our-campus",
+  src: "/dcas-campus.jpg",
+  alt: "Aerial view of the Duxford College campus and sports ground",
+  label: "Our Campus",
+  className: "md:col-span-2",
+};
+
+type GalleryCard = {
+  id: string;
+  src: string;
+  alt: string;
+  label: string;
+  className: string;
+};
 
 const standings = [
   { rank: 1, house: "Falcon House", color: "#f47b00", gold: 14, silver: 9, bronze: 6, points: 126 },
@@ -42,90 +59,59 @@ const standings = [
   { rank: 4, house: "Spartan House", color: "#6e8bf5", gold: 7, silver: 8, bronze: 9, points: 82 },
 ];
 
-const winners = [
-  {
-    event: "100m Sprint",
-    category: "Men",
-    name: "Arjun Mehta",
-    house: "Falcon",
-    result: "10.82s",
-    initials: "AM",
-    accent: "#f47b00",
-  },
-  {
-    event: "High Jump",
-    category: "Women",
-    name: "Riya Kapoor",
-    house: "Phoenix",
-    result: "1.72m",
-    initials: "RK",
-    accent: "#f5c84b",
-  },
-  {
-    event: "400m Relay",
-    category: "Mixed",
-    name: "Falcon Quartet",
-    house: "Falcon",
-    result: "43.19s",
-    initials: "F4",
-    accent: "#f47b00",
-  },
-  {
-    event: "Long Jump",
-    category: "Men",
-    name: "Kabir Singh",
-    house: "Titan",
-    result: "7.14m",
-    initials: "KS",
-    accent: "#1db8a3",
-  },
-  {
-    event: "Badminton",
-    category: "Women",
-    name: "Meera Joshi",
-    house: "Spartan",
-    result: "21–16",
-    initials: "MJ",
-    accent: "#6e8bf5",
-  },
-  {
-    event: "Basketball",
-    category: "Men",
-    name: "Phoenix Five",
-    house: "Phoenix",
-    result: "68–61",
-    initials: "P5",
-    accent: "#f5c84b",
-  },
-];
-
 const schedules = {
   "Day 1": [
     {
       time: "08:00",
       event: "March Past & Opening Ceremony",
-      venue: "Main Field",
+      venue: "Main Stadium Ground",
       type: "Ceremony",
     },
-    { time: "09:30", event: "100m & 200m Heats", venue: "Athletics Track", type: "Track" },
-    { time: "11:00", event: "Volleyball Group Stage", venue: "Indoor Court", type: "Team" },
-    { time: "13:30", event: "Shot Put Qualifiers", venue: "Field Arena", type: "Field" },
-    { time: "15:00", event: "800m Heats", venue: "Athletics Track", type: "Track" },
+    { time: "09:30", event: "100m & 200m Track Heats (Boys & Girls)", venue: "Athletics Track", type: "Track" },
+    { time: "11:00", event: "Football Preliminary Stage (Boys)", venue: "Main Football Ground", type: "Games" },
+    { time: "11:30", event: "Throwball Group Stage (Girls)", venue: "Outer Sports Arena", type: "Games" },
+    { time: "13:30", event: "Shotput & Longjump Qualifiers", venue: "Field Arena", type: "Field" },
+    { time: "15:00", event: "1500m Long Distance Final (Boys)", venue: "Athletics Track", type: "Track" },
   ],
   "Day 2": [
-    { time: "08:00", event: "Athlete Warm-up Session", venue: "Main Field", type: "Completed" },
-    { time: "09:30", event: "100m & 200m Finals", venue: "Athletics Track", type: "Track" },
-    { time: "11:00", event: "Basketball Semi-finals", venue: "Indoor Court", type: "Team" },
-    { time: "13:30", event: "Long Jump Finals", venue: "Field Arena", type: "Field" },
-    { time: "15:00", event: "4 × 400m Relay Finals", venue: "Athletics Track", type: "Track" },
+    { time: "08:00", event: "Cricket Knockout Rounds (Boys)", venue: "Cricket Ground", type: "Games" },
+    { time: "09:30", event: "400m Sprint Finals & 600m Girls Final", venue: "Athletics Track", type: "Track" },
+    { time: "11:00", event: "Volleyball Tournament Matches (Boys)", venue: "Outdoor Volleyball Court", type: "Games" },
+    { time: "11:30", event: "Kho-Kho League Matches (Girls)", venue: "Main Field Area", type: "Games" },
+    { time: "13:30", event: "Highjump & Discus Throw Finals", venue: "Field Arena", type: "Field" },
+    { time: "15:00", event: "Mini Dodgeball Action Rounds (Girls)", venue: "Indoor Sports Hall", type: "Games" },
   ],
   "Day 3": [
-    { time: "09:00", event: "Badminton Finals", venue: "Sports Hall", type: "Team" },
-    { time: "10:30", event: "High Jump Finals", venue: "Field Arena", type: "Field" },
-    { time: "12:00", event: "Football Championship", venue: "Main Field", type: "Team" },
-    { time: "15:00", event: "House Relay Showdown", venue: "Athletics Track", type: "Track" },
-    { time: "17:00", event: "Medal Ceremony", venue: "Main Field", type: "Ceremony" },
+    { time: "09:00", event: "Badminton Finals (Boys & Girls)", venue: "Indoor Badminton Court", type: "Games" },
+    { time: "10:00", event: "Chess Championship (Boys & Girls)", venue: "College Auditorium", type: "Games" },
+    { time: "11:00", event: "Javelin Throw Championship", venue: "Field Arena", type: "Field" },
+    { time: "12:30", event: "Football Grand Final (Boys)", venue: "Main Football Ground", type: "Games" },
+    { time: "15:00", event: "4 x 100m Relay Mega Final (Boys & Girls)", venue: "Athletics Track", type: "Track" },
+    { time: "16:45", event: "Trophy Presentation & Closing Ceremony", venue: "Main Arena", type: "Ceremony" },
   ],
+};
+
+const defaultScheduleRows = Object.entries(schedules).flatMap(([day, items]) =>
+  items.map((item) => ({
+    day,
+    time: item.time,
+    event: item.event,
+    category: item.type,
+    gender: "",
+    location: item.venue,
+  }))
+);
+
+const eventBackgrounds: Record<string, string> = {
+  Football: "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?auto=format&fit=crop&w=1000&q=80",
+  Cricket: "https://images.unsplash.com/photo-1531415074968-036ba1b575da?auto=format&fit=crop&w=1000&q=80",
+  Volleyball: "https://images.unsplash.com/photo-1612872087720-bb876e2e67d1?auto=format&fit=crop&w=1000&q=80",
+  Badminton: "https://images.unsplash.com/photo-1626224583764-f87db24ac4ea?auto=format&fit=crop&w=1000&q=80",
+  Chess: "https://images.unsplash.com/photo-1586165368502-1bad197a6461?auto=format&fit=crop&w=1000&q=80",
+  Throwball: "https://images.unsplash.com/photo-1592656094267-764a45160876?auto=format&fit=crop&w=1000&q=80",
+  "Mini Dodgeball": "https://images.unsplash.com/photo-1517466787929-bc90951d0974?auto=format&fit=crop&w=1000&q=80",
+  "Kho-Kho": "https://images.unsplash.com/photo-1502904550040-7534597429ae?auto=format&fit=crop&w=1000&q=80",
+  Athletics: "https://images.unsplash.com/photo-1532444458054-01a7dd3e9fca?auto=format&fit=crop&w=1000&q=80",
 };
 
 function Icon({
@@ -195,10 +181,36 @@ function Icon({
 }
 
 function App() {
+  const s = usePoll("/state", 4000);
+  const cfg = usePoll("/config", 5000);
+  const galleryData = usePoll<{ photos: any[] }>("/gallery", 5000);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [utilityOpen, setUtilityOpen] = useState(false);
   const [winnerFilter, setWinnerFilter] = useState("All");
   const [selectedPhoto, setSelectedPhoto] = useState<number | null>(null);
-  const [activeDay, setActiveDay] = useState<keyof typeof schedules>("Day 2");
+  const [activeDay, setActiveDay] = useState<string>("Day 2");
+  const scheduleItems: ScheduleItem[] = cfg?.schedule?.length ? cfg.schedule : defaultScheduleRows;
+  const scheduleDays: string[] = [...new Set(scheduleItems.map((item) => item.day))];
+  const selectedDay = scheduleDays.includes(activeDay) ? activeDay : scheduleDays[0] || activeDay;
+  const recentPhotos = sortGalleryPhotos(galleryData?.photos || cfg?.gallery).slice(0, 3);
+  const latestPhotoCards: GalleryCard[] = recentPhotos.map((photo, index) => ({
+    id: photo.id || photo.src,
+    src: photo.src,
+    alt: photo.caption || "Sports meet photo",
+    label: photo.caption || "Latest event photo",
+    className: index === 0 ? "md:col-span-2 md:row-span-2" : "",
+  }));
+  while (latestPhotoCards.length < 3) {
+    latestPhotoCards.push({
+      id: `latest-photo-placeholder-${latestPhotoCards.length}`,
+      src: "",
+      alt: "",
+      label: "Latest event photos will appear here",
+      className: latestPhotoCards.length === 0 ? "md:col-span-2 md:row-span-2" : "",
+    });
+  }
+  const galleryItems: GalleryCard[] = [...latestPhotoCards, campusPhoto];
+  const modalPhotos = galleryItems.filter((photo) => photo.src);
 
   useEffect(() => {
     document.body.style.overflow = selectedPhoto === null ? "" : "hidden";
@@ -212,15 +224,88 @@ function App() {
     };
   }, [selectedPhoto]);
 
-  const filteredWinners =
+  // Dynamically compute live house standings from DB or fallback
+  const displayStandings = s?.standings?.length
+    ? s.standings.map((team: any, i: number) => ({
+        rank: i + 1,
+        house: team.house,
+        color: houseColors[team.house] || defaultColors[i % defaultColors.length],
+        gold: team.gold || 0,
+        silver: team.silver || 0,
+        bronze: team.bronze || 0,
+        points: team.points || 0,
+      }))
+    : (cfg?.houses || ["BCom Co-operation", "BA Economics", "BCom Finance & BBA", "GDA, BCA & Psychology"]).map((house: string, i: number) => ({
+        rank: i + 1,
+        house,
+        color: houseColors[house] || defaultColors[i % defaultColors.length],
+        gold: 0,
+        silver: 0,
+        bronze: 0,
+        points: 0,
+      }));
+
+  // Published podiums are the default; admins can override them with featured cards.
+  const liveWinners: DisplayWinner[] = [];
+  if (s?.results && cfg?.events) {
+    for (const [eid, r] of Object.entries<any>(s.results)) {
+      const ev = cfg.events.find((e: any) => e.id === eid);
+      if (ev && r.places?.length > 0) {
+        const first = r.places[0];
+        const teamEvent = ev.category === "Games" || /relay/i.test(`${ev.id} ${ev.name}`);
+        liveWinners.push({
+          event: ev.name,
+          category: ev.gender === "Boys" ? "Men" : ev.gender === "Girls" ? "Women" : "Mixed",
+          name: teamEvent ? `${first.house || first.name || first.id} Team` : first.name || first.id,
+          house: teamEvent ? "" : first.house || "Team",
+          result: "Winner",
+          initials: (first.name || "W").slice(0, 2).toUpperCase(),
+          accent: houseColors[first.house] || "#f47b00",
+          picture: first.picture || "",
+        });
+      }
+    }
+  }
+  const configuredWinners: DisplayWinner[] = (cfg?.featuredWinners || []).map((winner: any) => {
+    const matchingResult = liveWinners.find(
+      (live) =>
+        live.event.trim().toLowerCase() === String(winner.event || "").trim().toLowerCase() &&
+        live.name.trim().toLowerCase() === String(winner.name || "").trim().toLowerCase() &&
+        live.house.trim().toLowerCase() === String(winner.house || "").trim().toLowerCase()
+    );
+    return {
+      ...winner,
+      initials: String(winner.name || "W").slice(0, 2).toUpperCase(),
+      accent: houseColors[winner.house] || "#f47b00",
+      result: winner.result || "Winner",
+      picture: winner.picture || matchingResult?.picture || "",
+    };
+  });
+  const displayWinners: DisplayWinner[] = configuredWinners.length ? configuredWinners : liveWinners;
+
+  const filteredWinners: DisplayWinner[] =
     winnerFilter === "All"
-      ? winners
-      : winners.filter(
+      ? displayWinners
+      : displayWinners.filter(
           (winner) =>
             winner.category === winnerFilter ||
-            (winnerFilter === "Boys" && winner.category === "Men") ||
-            (winnerFilter === "Girls" && winner.category === "Women")
+            (winnerFilter === "Boys" && (winner.category === "Men" || winner.category === "Boys")) ||
+            (winnerFilter === "Girls" && (winner.category === "Women" || winner.category === "Girls"))
         );
+
+  const [eventCatFilter, setEventCatFilter] = useState<"All" | "Games" | "Athletics">("All");
+  const [eventGenFilter, setEventGenFilter] = useState<"All" | "Boys" | "Girls">("All");
+
+  const allEventsList = (cfg?.events && cfg.events.length > 0) ? cfg.events : SPORTSITEM_EVENTS;
+  const filteredEventsList = allEventsList.filter((e: any) => {
+    const matchCat = eventCatFilter === "All" || e.category === eventCatFilter;
+    const matchGen =
+      eventGenFilter === "All" ||
+      e.gender === eventGenFilter ||
+      (eventGenFilter === "Boys" && e.gender === "Men") ||
+      (eventGenFilter === "Girls" && e.gender === "Women");
+    return matchCat && matchGen;
+  });
 
   const scrollTo = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
@@ -250,7 +335,7 @@ function App() {
             </span>
           </button>
           <nav className="hidden items-center gap-8 lg:flex">
-            {["Schedule", "Standings", "Winners", "Gallery"].map((item) => (
+            {["Schedule", "Events", "Standings", "Winners", "Gallery"].map((item) => (
               <button
                 key={item}
                 onClick={() => scrollTo(item.toLowerCase())}
@@ -262,26 +347,41 @@ function App() {
           </nav>
           <div className="hidden items-center gap-3 md:flex">
             <span className="flex items-center gap-2 rounded-full bg-[#fef1e5] px-4 py-2 text-xs font-semibold text-[#8f2000]">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-[#f47b00]" /> Live · Day 2
+            <span className="h-2 w-2 animate-pulse rounded-full bg-[#f47b00]" /> Live · {cfg?.liveDay || "Day 2"}
+            </span>
+            <div className="relative">
+              <button
+                onClick={() => setUtilityOpen((open) => !open)}
+                className="grid h-10 w-10 place-items-center rounded-full border border-[#002656]/15 text-xl font-black"
+                aria-label="Open quick links"
+              >
+                ⋮
+              </button>
+              {utilityOpen && (
+                <div className="absolute right-0 top-12 w-48 rounded-xl border border-[#002656]/10 bg-white p-2 shadow-xl">
+                  <a className="block rounded-lg px-4 py-3 text-sm font-bold hover:bg-[#eef2f7]" href="#/results">Live Results</a>
+                  <a className="block rounded-lg px-4 py-3 text-sm font-bold hover:bg-[#eef2f7]" href="#/points">My Points</a>
+                  <a className="block rounded-lg px-4 py-3 text-sm font-bold hover:bg-[#eef2f7]" href="#/register">House Captain Login</a>
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 md:hidden">
+            <span className="rounded-full bg-[#fef1e5] px-3 py-2 text-[10px] font-bold text-[#8f2000]">
+              Live · {cfg?.liveDay || "Day 2"}
             </span>
             <button
-              onClick={() => scrollTo("schedule")}
-              className="rounded-full bg-[#f47b00] px-5 py-2.5 text-xs font-black uppercase tracking-[.12em] text-white transition hover:bg-[#e63516]"
+              className="grid h-10 w-10 place-items-center"
+              onClick={() => setMenuOpen(!menuOpen)}
+              aria-label="Toggle menu"
             >
-              View events
+              <Icon name={menuOpen ? "close" : "menu"} />
             </button>
           </div>
-          <button
-            className="grid h-10 w-10 place-items-center md:hidden"
-            onClick={() => setMenuOpen(!menuOpen)}
-            aria-label="Toggle menu"
-          >
-            <Icon name={menuOpen ? "close" : "menu"} />
-          </button>
         </div>
         {menuOpen && (
           <nav className="border-t border-[#002656]/10 bg-white px-5 py-5 md:hidden">
-            {["Schedule", "Standings", "Winners", "Gallery"].map((item) => (
+            {["Schedule", "Events", "Standings", "Winners", "Gallery"].map((item) => (
               <button
                 key={item}
                 onClick={() => scrollTo(item.toLowerCase())}
@@ -290,6 +390,9 @@ function App() {
                 {item}
               </button>
             ))}
+            <a href="#/results" className="block w-full border-b border-[#002656]/10 py-4 text-left font-display text-2xl uppercase">Live Results</a>
+            <a href="#/points" className="block w-full border-b border-[#002656]/10 py-4 text-left font-display text-2xl uppercase">My Points</a>
+            <a href="#/register" className="block w-full py-4 text-left font-display text-2xl uppercase">House Captain Login</a>
           </nav>
         )}
       </header>
@@ -299,8 +402,8 @@ function App() {
         className="relative flex min-h-[820px] items-end bg-[#002656] pt-20 text-white"
       >
         <img
-          src={photos[0].src}
-          alt={photos[0].alt}
+          src={heroPhoto}
+          alt="Student athletes racing around a stadium track"
           className="absolute inset-0 h-full w-full object-cover opacity-55"
         />
         <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(0,38,86,.98)_0%,rgba(0,38,86,.78)_48%,rgba(0,38,86,.15)_100%)]" />
@@ -336,7 +439,7 @@ function App() {
           </div>
           <div className="mt-14 grid max-w-3xl grid-cols-3 border-t border-white/20 pt-6">
             {[
-              ["32", "Events"],
+              ["30", "Events"],
               ["480+", "Athletes"],
               ["04", "Houses"],
             ].map(([number, label]) => (
@@ -368,14 +471,14 @@ function App() {
               line-up.
             </h2>
             <p className="mt-7 max-w-sm leading-7 text-[#59615e]">
-              The arena is ready. Follow every heat, match, and medal moment from day two.
+              The arena is ready. Follow every heat, match, and medal moment from {selectedDay}.
             </p>
             <div className="mt-10 inline-flex rounded-full bg-[#e7e2d7] p-1.5">
-              {["Day 1", "Day 2", "Day 3"].map((day) => (
+              {scheduleDays.map((day: string) => (
                 <button
                   key={day}
-                  onClick={() => setActiveDay(day as keyof typeof schedules)}
-                  className={`rounded-full px-5 py-2 text-xs font-black uppercase tracking-wider ${day === activeDay ? "bg-[#002656] text-white" : "text-[#6b706e]"}`}
+                  onClick={() => setActiveDay(day)}
+                  className={`rounded-full px-5 py-2 text-xs font-black uppercase tracking-wider ${day === selectedDay ? "bg-[#002656] text-white" : "text-[#6b706e]"}`}
                 >
                   {day}
                 </button>
@@ -383,9 +486,9 @@ function App() {
             </div>
           </div>
           <div className="border-t-2 border-[#002656]">
-            {schedules[activeDay].map((item) => (
+            {scheduleItems.filter((item: any) => item.day === selectedDay).map((item: any, index: number) => (
               <div
-                key={item.time}
+                key={`${item.day}-${item.time}-${item.event}-${index}`}
                 className="group grid grid-cols-[60px_1fr] gap-4 border-b border-[#cbc8bf] py-6 transition hover:px-4 md:grid-cols-[90px_1fr_120px] md:items-center"
               >
                 <span className="font-display text-xl text-[#f47b00]">{item.time}</span>
@@ -393,14 +496,144 @@ function App() {
                   <p className="text-base font-extrabold md:text-lg">{item.event}</p>
                   <p className="mt-1 flex items-center gap-1.5 text-xs text-[#737875]">
                     <Icon name="map" size={13} />
-                    {item.venue}
+                    {item.location || item.venue}
                   </p>
                 </div>
                 <span className="col-start-2 w-fit rounded-full border border-[#c6c4bb] px-3 py-1 text-[10px] font-bold uppercase tracking-[.15em] text-[#676d69] md:col-start-auto">
-                  {item.type}
+                  {[item.category, item.gender].filter(Boolean).join(" · ")}
                 </span>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Official Tournament Games & Athletics Directory */}
+      <section id="events" className="border-t border-[#002656]/10 bg-[#edf1f7] py-24 md:py-32">
+        <div className="mx-auto max-w-[1440px] px-5 md:px-10">
+          <div className="mb-12 flex flex-col justify-between gap-5 md:flex-row md:items-end">
+            <div>
+              <p className="eyebrow">Complete Sports Roster</p>
+              <h2 className="section-title mt-5">
+                Tournament
+                <br />
+                Games & Items.
+              </h2>
+              <p className="mt-4 max-w-xl text-base leading-7 text-[#59615e]">
+                All <strong>30 officially recognized events</strong> across Games (10, 5, 2 pts) and Athletics (5, 3, 1 pts) partitioned into Boys and Girls divisions.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <a
+                href="#/register"
+                className="rounded-full bg-[#f47b00] px-6 py-3 text-xs font-black uppercase tracking-[.14em] text-white transition hover:bg-[#e63516]"
+              >
+                House Captain Login →
+              </a>
+            </div>
+          </div>
+
+          {/* Interactive Filters */}
+          <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            {/* Category Filter */}
+            <div className="inline-flex rounded-full bg-[#dbe1ec] p-1.5 shadow-inner">
+              {(["All", "Games", "Athletics"] as const).map((cat) => {
+                const count = cat === "All" ? allEventsList.length : allEventsList.filter((e: any) => e.category === cat).length;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setEventCatFilter(cat)}
+                    className={`rounded-full px-5 py-2 text-xs font-black uppercase tracking-wider transition ${
+                      eventCatFilter === cat ? "bg-[#002656] text-white shadow-sm" : "text-[#55606d] hover:text-[#002656]"
+                    }`}
+                  >
+                    {cat === "Games" ? "⚽ Games" : cat === "Athletics" ? "🏃 Athletics" : "All Items"} ({count})
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Gender Division Filter */}
+            <div className="inline-flex rounded-full bg-white p-1.5 border border-[#002656]/15">
+              {(["All", "Boys", "Girls"] as const).map((gen) => {
+                const count = gen === "All" ? allEventsList.length : allEventsList.filter((e: any) => e.gender === gen).length;
+                return (
+                  <button
+                    key={gen}
+                    onClick={() => setEventGenFilter(gen)}
+                    className={`rounded-full px-4 py-1.5 text-xs font-bold transition ${
+                      eventGenFilter === gen ? "bg-[#f47b00] text-white" : "text-[#55606d] hover:text-[#002656]"
+                    }`}
+                  >
+                    {gen === "Boys" ? "👦 Boys" : gen === "Girls" ? "👧 Girls" : "All Genders"} ({count})
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Events Grid */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {filteredEventsList.map((e: any) => {
+              const pts = e.points || (e.category === "Games" ? [10, 5, 2] : [5, 3, 1]);
+              const count = s?.counts?.[e.id] || 0;
+              const isGame = e.category === "Games";
+              const backgroundImage = eventBackgrounds[e.name] || eventBackgrounds.Athletics;
+
+              return (
+                <div
+                  key={e.id}
+                  className="group relative flex min-h-[310px] flex-col justify-between overflow-hidden rounded-2xl border border-white/10 bg-[#002656] p-6 text-white shadow-sm transition hover:-translate-y-1 hover:shadow-xl"
+                >
+                  <div
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-0 bg-cover bg-center opacity-25 transition duration-500 group-hover:scale-105 group-hover:opacity-35"
+                    style={{ backgroundImage: `url("${backgroundImage}")` }}
+                  />
+                  <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-br from-[#002656]/90 via-[#002656]/75 to-[#002656]/90" />
+                  <div className="relative z-10">
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-extrabold uppercase tracking-wider ${
+                        isGame ? "bg-[#e8f1ff] text-[#002656]" : "bg-[#fef1e5] text-[#b84d00]"
+                      }`}>
+                        {e.category}
+                      </span>
+                      <span className="inline-flex items-center rounded-full border border-white/25 bg-white/10 px-2.5 py-0.5 text-[11px] font-bold text-white">
+                        {e.gender}
+                      </span>
+                    </div>
+
+                    <div className="my-5">
+                      <h3 className="text-2xl font-extrabold leading-tight text-white">{e.name}</h3>
+                      <span className="mt-1 inline-block text-xs font-semibold uppercase tracking-wider text-white/65">{e.type}</span>
+                    </div>
+
+                    <div className="mt-4 rounded-xl border border-white/15 bg-white/10 p-3">
+                      <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-white/55">
+                        Predefined Points Scale
+                      </span>
+                      <div className="flex items-center justify-between gap-2 text-xs font-black text-white">
+                        <span>1st: {pts[0]}</span>
+                        <span>2nd: {pts[1]}</span>
+                        <span>3rd: {pts[2]}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="relative z-10 mt-5 flex items-center justify-between border-t border-white/20 pt-3">
+                    <span className="text-xs font-semibold text-white/65">
+                      {count} {count === 1 ? "entry" : "entries"} registered
+                    </span>
+                    <a
+                      href="#/register"
+                      className="text-xs font-black uppercase tracking-wider text-[#f47b00] hover:text-[#e63516] transition"
+                    >
+                      Register →
+                    </a>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -413,8 +646,7 @@ function App() {
               <h2 className="section-title mt-5">Point table.</h2>
             </div>
             <p className="max-w-sm text-sm leading-6 text-white/50">
-              Updated after 24 of 32 events. Points include track, field, team sports, and
-              participation bonuses.
+              Updated live ({s?.published || 0} of {cfg?.events?.length || 30} events published). Standings reflect both Athletics & Games points.
             </p>
           </div>
           <div className="overflow-x-auto">
@@ -427,7 +659,7 @@ function App() {
                 <span>Bronze</span>
                 <span className="text-right">Points</span>
               </div>
-              {standings.map((team) => (
+              {displayStandings.map((team: any) => (
                 <div
                   key={team.house}
                   className="grid grid-cols-[70px_1fr_repeat(3,90px)_110px] items-center border-b border-white/12 px-4 py-7 transition hover:bg-white/5"
@@ -469,10 +701,14 @@ function App() {
           </div>
         </div>
         <div className="grid gap-px overflow-hidden border border-[#cbc7bd] bg-[#cbc7bd] md:grid-cols-2 xl:grid-cols-3">
-          {filteredWinners.map((winner) => (
+          {filteredWinners.length === 0 ? (
+            <div className="bg-white p-8 text-sm text-[#737875] md:col-span-2 xl:col-span-3">
+              Event winners will appear here when an administrator publishes results or adds featured winners.
+            </div>
+          ) : filteredWinners.map((winner) => (
             <article
               key={winner.event + winner.name}
-              className="group relative min-h-72 bg-[#f7f8fb] p-7 transition hover:bg-white"
+              className="group min-h-72 bg-[#f7f8fb] p-7 transition hover:bg-white"
             >
               <div className="flex items-start justify-between">
                 <span className="rounded-full border border-[#cbc7bd] px-3 py-1 text-[10px] font-black uppercase tracking-[.15em]">
@@ -481,22 +717,31 @@ function App() {
                 <Icon name="trophy" size={28} />
               </div>
               <div className="mt-10 flex items-end gap-5">
-                <div
-                  className="grid h-16 w-16 shrink-0 place-items-center rounded-full font-display text-2xl text-[#002656]"
-                  style={{ background: winner.accent }}
-                >
-                  {winner.initials}
-                </div>
-                <div>
+                {winner.picture ? (
+                  <img
+                    src={winner.picture}
+                    alt={`${winner.name} portrait`}
+                    loading="lazy"
+                    className="h-16 w-16 shrink-0 rounded-full object-cover ring-4 ring-white shadow-md"
+                  />
+                ) : (
+                  <div
+                    className="grid h-16 w-16 shrink-0 place-items-center rounded-full font-display text-2xl text-[#002656]"
+                    style={{ background: winner.accent }}
+                  >
+                    {winner.initials}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
                   <p className="text-xs font-bold uppercase tracking-[.18em] text-[#737875]">
                     {winner.event}
                   </p>
-                  <h3 className="mt-1 text-xl font-extrabold">{winner.name}</h3>
-                  <p className="mt-1 text-sm text-[#737875]">{winner.house} House</p>
+                  <h3 className="mt-1 break-words text-xl font-extrabold leading-tight">{winner.name}</h3>
+                  {winner.house && <p className="mt-1 break-words text-sm text-[#737875]">{winner.house} House</p>}
                 </div>
               </div>
               <div
-                className="absolute bottom-6 right-7 font-display text-3xl"
+                className="mt-6 flex justify-end font-display text-3xl"
                 style={{ color: winner.accent }}
               >
                 {winner.result}
@@ -514,29 +759,56 @@ function App() {
               <h2 className="section-title mt-5">Meet gallery.</h2>
             </div>
             <p className="hidden text-xs font-bold uppercase tracking-[.2em] text-[#6c716d] md:block">
-              Day 01—02 / 48 photos
+              Live gallery / {galleryData?.photos?.length ?? cfg?.gallery?.length ?? 0} event photos
             </p>
           </div>
           <div className="grid auto-rows-[240px] gap-4 md:grid-cols-4">
-            {photos.map((photo, index) => (
+            {galleryItems.map((photo, index) => (
               <button
-                key={photo.src}
-                onClick={() => setSelectedPhoto(index)}
+                key={photo.id}
+                onClick={() => {
+                  const modalIndex = modalPhotos.findIndex((item) => item.id === photo.id);
+                  if (modalIndex >= 0) {
+                    if (photo.id !== "our-campus" && photo.src && !photo.id.startsWith("latest-photo-placeholder")) {
+                      trackGalleryActivity(photo.id, "open");
+                    }
+                    setSelectedPhoto(modalIndex);
+                  }
+                }}
+                disabled={!photo.src}
+                aria-label={photo.src ? `View ${photo.label}` : photo.label}
                 className={`group relative overflow-hidden bg-[#002656] text-left ${photo.className}`}
               >
-                <img
-                  src={photo.src}
-                  alt={photo.alt}
-                  className="h-full w-full object-cover transition duration-700 group-hover:scale-105 group-hover:opacity-75"
-                />
-                <div className="absolute inset-x-0 bottom-0 flex items-end justify-between bg-gradient-to-t from-black/80 to-transparent p-5 pt-16 text-white">
+                {photo.src ? (
+                  <img
+                    src={photo.src}
+                    alt={photo.alt}
+                    loading="lazy"
+                    className="h-full w-full object-cover transition duration-700 group-hover:scale-105 group-hover:opacity-75"
+                  />
+                ) : (
+                  <div className="grid h-full min-h-[240px] place-items-center border border-dashed border-white/25 px-6 text-center text-sm text-white/65">
+                    {photo.label}
+                  </div>
+                )}
+                {photo.src && (
+                  <div className="absolute inset-x-0 bottom-0 flex items-end justify-between bg-gradient-to-t from-black/80 to-transparent p-5 pt-16 text-white">
                   <span className="font-display text-2xl uppercase">{photo.label}</span>
                   <span className="grid h-9 w-9 place-items-center rounded-full border border-white/60 transition group-hover:bg-white group-hover:text-black">
                     <Icon name="arrow" size={16} />
                   </span>
-                </div>
+                  </div>
+                )}
               </button>
             ))}
+          </div>
+          <div className="mt-8 flex flex-col items-start justify-between gap-4 border-t border-[#d6dce5] pt-6 sm:flex-row sm:items-center">
+            <p className="max-w-xl text-sm leading-6 text-[#626c79]">
+              Browse the complete event photo collection and download any image you need.
+            </p>
+            <a href="#/gallery" className="inline-flex items-center gap-2 rounded-full bg-[#002656] px-6 py-3 text-xs font-bold uppercase tracking-[.14em] text-white transition hover:bg-[#f47b00]">
+              Browse full gallery <Icon name="arrow" size={16} />
+            </a>
           </div>
         </div>
       </section>
@@ -614,14 +886,14 @@ function App() {
           </button>
           <figure className="max-h-full max-w-6xl">
             <img
-              src={photos[selectedPhoto].src}
-              alt={photos[selectedPhoto].alt}
+              src={modalPhotos[selectedPhoto].src}
+              alt={modalPhotos[selectedPhoto].alt}
               className="max-h-[80vh] w-auto object-contain"
             />
             <figcaption className="mt-4 flex items-center justify-between text-white">
-              <span className="font-display text-2xl uppercase">{photos[selectedPhoto].label}</span>
+              <span className="font-display text-2xl uppercase">{modalPhotos[selectedPhoto].label}</span>
               <span className="text-xs text-white/50">
-                0{selectedPhoto + 1} / 0{photos.length}
+                {String(selectedPhoto + 1).padStart(2, "0")} / {String(modalPhotos.length).padStart(2, "0")}
               </span>
             </figcaption>
           </figure>

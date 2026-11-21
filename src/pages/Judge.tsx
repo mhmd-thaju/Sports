@@ -3,42 +3,77 @@ import { api } from "../api";
 import { usePoll } from "../hooks";
 import PinGate from "../components/PinGate";
 
+function ordinal(position: number): string {
+  const suffix = position % 100 >= 11 && position % 100 <= 13
+    ? "th"
+    : ({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[position % 10] || "th";
+  return `${position}${suffix}`;
+}
+
 function Board({ pin, judge }: { pin: string; judge: string }) {
-  const cfg = usePoll("/config", 60000);
+  const cfg = usePoll("/config", 5000);
   const [eid, setEid] = useState("");
   const [rows, setRows] = useState<any[]>([]);
+  const [positions, setPositions] = useState<Record<string, string>>({});
+  const [submission, setSubmission] = useState<any>(null);
+  const [published, setPublished] = useState(false);
   const [msg, setMsg] = useState("");
 
-  const load = () =>
-    eid &&
-    api("/entries/" + eid, undefined, pin, judge)
-      .then(setRows)
-      .catch((e) => setMsg(e.message));
+  const load = async () => {
+    if (!eid) {
+      setRows([]);
+      setSubmission(null);
+      setPublished(false);
+      return;
+    }
+    try {
+      const result = await api("/entries/" + eid, undefined, pin, judge);
+      const entries = Array.isArray(result.entries) ? result.entries : [];
+      setRows(entries);
+      setPositions(Object.fromEntries(entries.map((entry: any) => [entry.reg, entry.position ? String(entry.position) : ""])));
+      setSubmission(result.submission || null);
+      setPublished(Boolean(result.published));
+      setMsg("");
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  };
 
   useEffect(() => {
-    load();
-  }, [eid]);
+    void load();
+  }, [eid, pin, judge]);
 
-  const save = (reg: string, score: string) =>
-    api("/score", { eventId: eid, reg, score }, pin, judge)
-      .then(() => setMsg("Score saved ✓"))
-      .catch((e) => setMsg(e.message));
+  const submitResults = async () => {
+    if (published) return;
+    const ranked = rows.map((row) => ({ reg: row.reg, position: Number(positions[row.reg]) }));
+    const ranks = ranked.map((entry) => entry.position);
+    if (!rows.length || ranked.some((entry) => !Number.isInteger(entry.position) || entry.position < 1 || entry.position > rows.length) || new Set(ranks).size !== rows.length) {
+      setMsg("Assign a unique position to every participant or team before submitting.");
+      return;
+    }
+    try {
+      await api("/judge/submit/" + eid, { positions: ranked }, pin, judge);
+      setMsg("Results submitted for admin review ✓");
+      await load();
+    } catch (e: any) {
+      setMsg(e.message);
+    }
+  };
 
-  const judgedEvents = cfg?.events?.filter((e: any) => e.type === "judged") || [];
   const allEvents = cfg?.events || [];
-  const eventOptions = judgedEvents.length > 0 ? judgedEvents : allEvents;
+  const eventOptions = allEvents;
 
   return (
     <div className="card">
       <div className="flex-between" style={{ marginBottom: "12px" }}>
         <h2>
-          Judge Scoring <small className="muted">({judge})</small>
+          Judge Placings <small className="muted">({judge})</small>
         </h2>
         <span className="badge navy">Judge Panel</span>
       </div>
 
       <label>
-        Select Event to Score
+        Select Event to Judge
         <select value={eid} onChange={(e) => setEid(e.target.value)}>
           <option value="">Choose event…</option>
           {eventOptions.map((e: any) => (
@@ -49,35 +84,53 @@ function Board({ pin, judge }: { pin: string; judge: string }) {
         </select>
       </label>
 
+      {submission && !published && (
+        <p className="ok" role="status">
+          Submitted by {submission.judge} at {new Date(submission.submittedAt).toLocaleString()}. You can update these placings before the admin publishes them.
+        </p>
+      )}
+      {published && <p className="muted" role="status">Results are published. Ask an admin to unpublish this event before changing placings.</p>}
+
       {rows.map((r) => (
         <div className="row" key={r.reg}>
           <span>
             <strong>{r.name}</strong>{" "}
             <small className="muted">
-              ({r.reg} · {r.house} House)
+              ({r.reg} · {r.house}{r.members ? ` · ${r.members} team members` : ""})
             </small>
           </span>
-          <div className="flex-gap">
-            <span className="muted" style={{ fontSize: "0.8rem" }}>
-              Score (0-100):
-            </span>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              defaultValue={r.score}
-              onBlur={(e) => e.target.value !== "" && save(r.reg, e.target.value)}
-              aria-label={"Score for " + r.name}
-              style={{ width: "90px" }}
-            />
-          </div>
+          <label style={{ minWidth: "180px", margin: 0 }}>
+            Position
+            <select
+              value={positions[r.reg] || ""}
+              disabled={published}
+              onChange={(e) => setPositions((current) => ({ ...current, [r.reg]: e.target.value }))}
+              aria-label={"Position for " + r.name}
+            >
+              <option value="">Select position…</option>
+              {Array.from({ length: rows.length }, (_, index) => index + 1).map((position) => {
+                const takenByAnother = Object.entries(positions).some(([reg, value]) => reg !== r.reg && Number(value) === position);
+                return (
+                  <option key={position} value={position} disabled={takenByAnother}>
+                    {ordinal(position)}
+                  </option>
+                );
+              })}
+            </select>
+          </label>
         </div>
       ))}
 
       {eid && !rows.length && (
         <p className="muted" style={{ padding: "16px 0", textAlign: "center" }}>
-          No registered student participants for this event yet.
+          No registered participants or house teams for this event yet.
         </p>
+      )}
+
+      {rows.length > 0 && !published && (
+        <button className="btn" onClick={submitResults} style={{ marginTop: "16px" }}>
+          Submit Results to Admin
+        </button>
       )}
 
       {msg && (

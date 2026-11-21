@@ -1,18 +1,18 @@
 import { useState } from "react";
 import { usePoll } from "../hooks";
+import { SPORTSITEM_EVENTS } from "../localDb";
 
 export default function Results() {
-  const s = usePoll("/state", 4000);
-  const cfg = usePoll("/config", 30000);
+  const s = usePoll("/state", 3000);
+  const cfg = usePoll("/config", 5000);
 
   const [categoryFilter, setCategoryFilter] = useState<"All" | "Athletics" | "Games">("All");
   const [genderFilter, setGenderFilter] = useState<"All" | "Boys" | "Girls">("All");
 
-  if (!s || !cfg) return <p className="muted">Loading live results…</p>;
-
   const medal = ["🥇 1st", "🥈 2nd", "🥉 3rd"];
 
-  const filteredEvents = (cfg.events || []).filter((e: any) => {
+  const allEvents = (cfg?.events && cfg.events.length > 0) ? cfg.events : SPORTSITEM_EVENTS;
+  const filteredEvents = allEvents.filter((e: any) => {
     const matchCat = categoryFilter === "All" || e.category === categoryFilter;
     const matchGen =
       genderFilter === "All" ||
@@ -21,6 +21,9 @@ export default function Results() {
       (genderFilter === "Girls" && e.gender === "Women");
     return matchCat && matchGen;
   });
+
+  const athleticsCount = allEvents.filter((e: any) => e.category === "Athletics").length;
+  const gamesCount = allEvents.filter((e: any) => e.category === "Games").length;
 
   return (
     <>
@@ -81,19 +84,19 @@ export default function Results() {
               className={`category-tab ${categoryFilter === "All" ? "active" : ""}`}
               onClick={() => setCategoryFilter("All")}
             >
-              All Events
+              All Events ({allEvents.length})
             </button>
             <button
               className={`category-tab ${categoryFilter === "Athletics" ? "active" : ""}`}
               onClick={() => setCategoryFilter("Athletics")}
             >
-              🏃 Athletics
+              🏃 Athletics ({athleticsCount})
             </button>
             <button
               className={`category-tab ${categoryFilter === "Games" ? "active" : ""}`}
               onClick={() => setCategoryFilter("Games")}
             >
-              ⚽ Games
+              ⚽ Games ({gamesCount})
             </button>
           </div>
 
@@ -121,10 +124,11 @@ export default function Results() {
       </div>
 
       {/* Event Cards Grid */}
-      <div className="grid">
+      <div className="legacy-grid">
         {filteredEvents.map((e: any) => {
           const r = s.results[e.id];
-          const pts = e.points || (e.category === "Games" ? cfg.categoryPoints?.Games : cfg.categoryPoints?.Athletics) || [5, 3, 1];
+          const teamEvent = e.category === "Games" || /relay/i.test(`${e.id} ${e.name}`);
+          const pts = e.points || (e.category === "Games" ? (cfg.categoryPoints?.Games || [10, 5, 2]) : (cfg.categoryPoints?.Athletics || [5, 3, 1]));
 
           return (
             <div className="card" key={e.id} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
@@ -142,7 +146,7 @@ export default function Results() {
                   <div style={{ background: "#f8fafc", padding: "10px", borderRadius: "8px" }}>
                     {r.places.map((p: any, i: number) => (
                       <div key={i} style={{ padding: "4px 0", fontSize: "0.88rem" }}>
-                        <strong>{medal[i]}</strong> {p.name}{" "}
+                        <strong>{medal[i]}</strong> {teamEvent ? `${p.house} Team` : p.name}{" "}
                         <span className="muted">· {p.house} (+{pts[i]} pts)</span>
                       </div>
                     ))}

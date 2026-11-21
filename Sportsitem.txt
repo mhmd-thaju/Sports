@@ -1,0 +1,42 @@
+Games
+- Points - 10 , 5 , 2
+ Boys Game Items
+ - Football
+ - Cricket
+ - Volleyball
+ - Badminton
+ - Chess
+
+ Girls Game Items
+ - Throwball
+ - Badminton
+ - Mini Dodgeball
+ - Kho-Kho
+ - Chess
+
+
+ Athletics
+ points - 5, 3, 1
+ Boys Items
+ - 100m
+ - 200m
+ - 400m
+ - 1500m
+ - Highjump
+ - Longjump
+ - Shotput
+ - Discus Throw
+ - Javelin
+ - 4 x 100m Relay
+
+  Girls Items
+ - 100m
+ - 200m
+ - 400m
+ - 600m
+ - Highjump
+ - Longjump
+ - Shotput
+ - Discus Throw
+ - Javelin
+ - 4 x 100m Relay

@@ -1,227 +1,266 @@
 import { useState } from "react";
 import { api } from "../api";
 import { usePoll } from "../hooks";
+import { isRelayEvent } from "../localDb";
 
 export default function Register() {
-  const cfg = usePoll("/config", 30000);
-  const [f, setF] = useState({ reg: "", name: "", house: "", gender: "" });
-  const [sel, setSel] = useState<string[]>([]);
-  const [msg, setMsg] = useState<{ ok: boolean; t: string } | null>(null);
-  const [activeCategoryTab, setActiveCategoryTab] = useState<"All" | "Athletics" | "Games">("All");
+  const cfg = usePoll("/config", 5000);
+  const [credentials, setCredentials] = useState({ username: "", password: "" });
+  const [session, setSession] = useState<{ username: string; password: string; house: string; name: string } | null>(null);
+  const captainRegs = usePoll<any[]>("/captain/registrations", 5000, session?.password, session?.username);
+  const [loginError, setLoginError] = useState("");
+  const [form, setForm] = useState({ reg: "", name: "", gender: "", eventIds: [] as string[], picture: "" });
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [selectedRegistrationIds, setSelectedRegistrationIds] = useState<string[]>([]);
 
-  if (!cfg) return <p className="muted">Loading event details…</p>;
-
-  // Filter events matching selected gender
-  const availableEvents = (cfg.events || []).filter((e: any) => {
-    if (!f.gender) return false;
-    if (e.gender === "Mixed") return true;
-    const eg = String(e.gender).toLowerCase();
-    const fg = String(f.gender).toLowerCase();
-    return eg === fg || (eg === "boys" && fg === "men") || (eg === "girls" && fg === "women");
-  });
-
-  const athleticsEvents = availableEvents.filter((e: any) => e.category === "Athletics");
-  const gamesEvents = availableEvents.filter((e: any) => e.category === "Games");
-
-  const toggle = (id: string) => {
-    if (sel.includes(id)) {
-      setSel(sel.filter((x) => x !== id));
-    } else {
-      if (sel.length >= (cfg.maxEventsPerStudent || 3)) {
-        setMsg({
-          ok: false,
-          t: `You can only select up to ${cfg.maxEventsPerStudent || 3} events.`,
-        });
-        return;
-      }
-      setSel([...sel, id]);
+  const login = async () => {
+    setLoginError("");
+    try {
+      const result = await api("/captain/login", credentials);
+      setSession({ username: credentials.username, password: credentials.password, house: result.house, name: result.name });
+    } catch (error: any) {
+      setLoginError(error.message);
     }
+  };
+
+  const readPicture = (file?: File) => {
+    if (!file) return;
+    if (file.size > 2_500_000) {
+      setMessage({ ok: false, text: "Please choose an image smaller than 2.5 MB." });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setForm((current) => ({ ...current, picture: String(reader.result || "") }));
+    reader.readAsDataURL(file);
+  };
+
+  const toggleEvent = (eventId: string) => {
+    const event = cfg?.events?.find((item: any) => item.id === eventId);
+    if (!event) return;
+    setForm((current) => {
+      if (current.eventIds.includes(eventId)) {
+        return { ...current, eventIds: current.eventIds.filter((id) => id !== eventId) };
+      }
+      if (event.category === "Athletics") {
+        const selectedEvents = current.eventIds
+          .map((id) => cfg.events.find((item: any) => item.id === id))
+          .filter(Boolean);
+        if (isRelayEvent(event) && selectedEvents.some((item: any) => isRelayEvent(item))) return current;
+        if (!isRelayEvent(event) && selectedEvents.filter((item: any) => item.category === "Athletics" && !isRelayEvent(item)).length >= 3) {
+          return current;
+        }
+      }
+      return { ...current, eventIds: [...current.eventIds, eventId] };
+    });
   };
 
   const submit = async () => {
-    if (!f.reg.trim() || !f.name.trim()) {
-      setMsg({ ok: false, t: "Please enter your register number and full name." });
+    if (!session) return;
+    if (!form.reg.trim() || !form.name.trim()) {
+      setMessage({ ok: false, text: "Register number and full name are required." });
       return;
     }
-    if (!f.house) {
-      setMsg({ ok: false, t: "Please choose your team / house." });
+    if (!form.gender) {
+      setMessage({ ok: false, text: "Select the participant's division." });
       return;
     }
-    if (!f.gender) {
-      setMsg({ ok: false, t: "Please select Boys or Girls category." });
+    if (!form.picture) {
+      setMessage({ ok: false, text: "Participant picture is required." });
       return;
     }
-    if (!sel.length) {
-      setMsg({ ok: false, t: "Please select at least one event to participate." });
+    if (!form.eventIds.length) {
+      setMessage({ ok: false, text: "Select at least one event." });
       return;
     }
-
     try {
-      await api("/register", { ...f, eventIds: sel });
-      setMsg({
-        ok: true,
-        t: "🎉 Successfully registered! You can track your scores under My Points.",
-      });
-      setSel([]);
-      setF({ ...f, reg: "", name: "" });
-    } catch (e: any) {
-      setMsg({ ok: false, t: e.message });
+      await api(
+        "/captain/register",
+        form,
+        session.password,
+        session.username
+      );
+      setMessage({ ok: true, text: `${form.name} was registered successfully for ${session.house}.` });
+      setForm({ reg: "", name: "", gender: "", eventIds: [], picture: "" });
+    } catch (error: any) {
+      setMessage({ ok: false, text: error.message });
     }
   };
 
+  const removeRegistration = async (id: string, name: string) => {
+    if (!session || !confirm(`Remove ${name}'s registration from this event?`)) return;
+    try {
+      const result = await api(`/captain/unregister/${id}`, {}, session.password, session.username);
+      setSelectedRegistrationIds((current) => current.filter((selectedId) => selectedId !== id));
+      setMessage({
+        ok: !result.warnings?.length,
+        text: result.warnings?.length ? result.warnings.join("; ") : `Removed ${name}'s registration.`,
+      });
+    } catch (error) {
+      setMessage({ ok: false, text: error instanceof Error ? error.message : "Could not remove registration" });
+    }
+  };
+
+  const removeSelectedRegistrations = async () => {
+    if (!session || !selectedRegistrationIds.length || !confirm(`Remove ${selectedRegistrationIds.length} selected registration${selectedRegistrationIds.length === 1 ? "" : "s"}?`)) return;
+    try {
+      const result = await api(
+        "/captain/unregister-bulk",
+        { ids: selectedRegistrationIds },
+        session.password,
+        session.username
+      );
+      setSelectedRegistrationIds([]);
+      setMessage({
+        ok: !result.warnings?.length,
+        text: result.warnings?.length
+          ? `Removed ${result.removed} registration(s). ${result.warnings.join("; ")}`
+          : `Removed ${result.removed} registration(s).`,
+      });
+    } catch (error) {
+      setMessage({ ok: false, text: error instanceof Error ? error.message : "Could not remove registrations" });
+    }
+  };
+
+  if (!cfg) return <p className="muted">Loading captain registration…</p>;
+
+  if (!session) {
+    return (
+      <div className="card narrow">
+        <h2>House Captain Login</h2>
+        <p className="muted">Authorized house captains can register participants for their house.</p>
+        <label>
+          Captain username
+          <input value={credentials.username} onChange={(e) => setCredentials({ ...credentials, username: e.target.value })} />
+        </label>
+        <label>
+          Captain password
+          <input type="password" value={credentials.password} onChange={(e) => setCredentials({ ...credentials, password: e.target.value })} />
+        </label>
+        {loginError && <p className="err">{loginError}</p>}
+        <button className="btn" onClick={login}>Continue</button>
+      </div>
+    );
+  }
+
+  const events = (cfg.events || []).filter((event: any) => {
+    if (!form.gender) return false;
+    if (event.gender === "Mixed") return true;
+    return String(event.gender).toLowerCase() === String(form.gender).toLowerCase();
+  });
+
   return (
     <div className="card narrow">
-      <h2>Student Registration</h2>
-      <p className="muted" style={{ marginBottom: "16px" }}>
-        Enter your details and select your events for <strong>Athletics</strong> and <strong>Games</strong>.
-      </p>
+      <div className="flex-between" style={{ marginBottom: "12px" }}>
+        <div>
+          <h2>Register Participant</h2>
+          <p className="muted">{session.name} · {session.house} House</p>
+        </div>
+        <button className="btn sm ghost" onClick={() => { setSession(null); setSelectedRegistrationIds([]); }}>Logout</button>
+      </div>
 
+      <label>Register number<input value={form.reg} onChange={(e) => setForm({ ...form, reg: e.target.value })} /></label>
+      <label>Full name<input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} /></label>
       <label>
-        Register number
-        <input
-          placeholder="e.g. 21BCA104"
-          value={f.reg}
-          onChange={(e) => setF({ ...f, reg: e.target.value })}
-        />
-      </label>
-
-      <label>
-        Full name
-        <input
-          placeholder="e.g. Rahul Sharma"
-          value={f.name}
-          onChange={(e) => setF({ ...f, name: e.target.value })}
-        />
-      </label>
-
-      <label>
-        Team / House
-        <select value={f.house} onChange={(e) => setF({ ...f, house: e.target.value })}>
-          <option value="">Select your house…</option>
-          {cfg.houses.map((h: string) => (
-            <option key={h} value={h}>
-              {h}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label>
-        Section / Category
-        <select
-          value={f.gender}
-          onChange={(e) => {
-            setF({ ...f, gender: e.target.value });
-            setSel([]);
-          }}
-        >
-          <option value="">Select category…</option>
+        Division
+        <select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value, eventIds: [] })}>
+          <option value="">Select division…</option>
           <option value="Boys">Boys</option>
           <option value="Girls">Girls</option>
         </select>
       </label>
+      <label>
+        Participant picture
+        <input type="file" accept="image/*" onChange={(e) => readPicture(e.target.files?.[0])} />
+      </label>
+      {form.picture && <img src={form.picture} alt="Participant preview" style={{ width: "120px", height: "120px", objectFit: "cover", borderRadius: "12px", marginBottom: "14px" }} />}
 
-      {f.gender ? (
-        <div style={{ marginTop: "18px" }}>
-          <div className="flex-between" style={{ marginBottom: "10px" }}>
-            <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>
-              Select Events ({sel.length}/{cfg.maxEventsPerStudent || 3})
-            </span>
-            <span className="muted" style={{ fontSize: "0.8rem" }}>
-              Max {cfg.maxEventsPerStudent || 3} events
-            </span>
+      {form.gender && (
+        <>
+          <h3>Select events</h3>
+          <p className="muted">
+            Each student may enter up to 3 individual Athletics events plus one relay. Each house may enter up to 3 participants per Athletics event (4 for a relay). Games have no student event limit; all same-house entries for a Games item belong to that house’s one team.
+          </p>
+          <div className="chips">
+            {events.map((event: any) => {
+              const selected = form.eventIds.includes(event.id);
+              const selectedEvents = form.eventIds
+                .map((id) => cfg.events.find((item: any) => item.id === id))
+                .filter(Boolean);
+              const relaySelected = selectedEvents.some((item: any) => isRelayEvent(item));
+              const individualAthleticsCount = selectedEvents.filter((item: any) => item.category === "Athletics" && !isRelayEvent(item)).length;
+              const limitReached = !selected && event.category === "Athletics" &&
+                (isRelayEvent(event) ? relaySelected : individualAthleticsCount >= 3);
+              return (
+                <button
+                  type="button"
+                  key={event.id}
+                  className={"chip" + (selected ? " on" : "")}
+                  disabled={limitReached}
+                  onClick={() => toggleEvent(event.id)}
+                  title={limitReached ? "Athletics limit reached" : undefined}
+                >
+                  {event.name}<small>{event.category}</small>
+                </button>
+              );
+            })}
           </div>
+        </>
+      )}
 
-          {/* Category Tabs inside Registration */}
-          <div className="category-tabs" style={{ marginBottom: "12px" }}>
-            <button
-              type="button"
-              className={`category-tab ${activeCategoryTab === "All" ? "active" : ""}`}
-              onClick={() => setActiveCategoryTab("All")}
-            >
-              All ({availableEvents.length})
-            </button>
-            <button
-              type="button"
-              className={`category-tab ${activeCategoryTab === "Athletics" ? "active" : ""}`}
-              onClick={() => setActiveCategoryTab("Athletics")}
-            >
-              🏃 Athletics ({athleticsEvents.length})
-            </button>
-            <button
-              type="button"
-              className={`category-tab ${activeCategoryTab === "Games" ? "active" : ""}`}
-              onClick={() => setActiveCategoryTab("Games")}
-            >
-              ⚽ Games ({gamesEvents.length})
-            </button>
+      {message && <p className={message.ok ? "ok" : "err"}>{message.text}</p>}
+      <button className="btn" onClick={submit}>Register Participant</button>
+
+      <section style={{ marginTop: "32px", borderTop: "1px solid var(--line)", paddingTop: "24px" }}>
+        <div className="flex-between" style={{ marginBottom: "12px" }}>
+          <div>
+            <h3>Your House Registrations</h3>
+            <p className="muted">{captainRegs?.length || 0} event registration(s) for {session.house}</p>
           </div>
-
-          {/* Athletics Section */}
-          {(activeCategoryTab === "All" || activeCategoryTab === "Athletics") && athleticsEvents.length > 0 && (
-            <div style={{ marginBottom: "14px" }}>
-              <div style={{ fontSize: "0.78rem", fontWeight: 800, textTransform: "uppercase", color: "var(--navy)", marginBottom: "6px" }}>
-                🏃 Athletics ({f.gender})
-              </div>
-              <div className="chips">
-                {athleticsEvents.map((e: any) => {
-                  const pts = e.points || cfg.categoryPoints?.Athletics || [5, 3, 1];
-                  return (
-                    <button
-                      type="button"
-                      key={e.id}
-                      className={"chip" + (sel.includes(e.id) ? " on" : "")}
-                      onClick={() => toggle(e.id)}
-                    >
-                      {e.name}
-                      <small>{pts[0]}/{pts[1]}/{pts[2]} pts</small>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Games Section */}
-          {(activeCategoryTab === "All" || activeCategoryTab === "Games") && gamesEvents.length > 0 && (
-            <div style={{ marginBottom: "14px" }}>
-              <div style={{ fontSize: "0.78rem", fontWeight: 800, textTransform: "uppercase", color: "var(--navy)", marginBottom: "6px" }}>
-                ⚽ Games ({f.gender})
-              </div>
-              <div className="chips">
-                {gamesEvents.map((e: any) => {
-                  const pts = e.points || cfg.categoryPoints?.Games || [10, 6, 2];
-                  return (
-                    <button
-                      type="button"
-                      key={e.id}
-                      className={"chip" + (sel.includes(e.id) ? " on" : "")}
-                      onClick={() => toggle(e.id)}
-                    >
-                      {e.name}
-                      <small>{pts[0]}/{pts[1]}/{pts[2]} pts</small>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+          <button className="btn sm danger" onClick={() => void removeSelectedRegistrations()} disabled={!selectedRegistrationIds.length}>
+            Remove selected
+          </button>
         </div>
-      ) : (
-        <p className="muted" style={{ margin: "14px 0" }}>
-          👉 Please select whether you are in the <strong>Boys</strong> or <strong>Girls</strong> section to view your available events.
-        </p>
-      )}
-
-      <button className="btn" onClick={submit} style={{ width: "100%", marginTop: "12px" }}>
-        Submit Registration
-      </button>
-
-      {msg && (
-        <p className={msg.ok ? "ok" : "err"} role="status" style={{ marginTop: "14px" }}>
-          {msg.t}
-        </p>
-      )}
+        <div className="scroll">
+          <table>
+            <thead>
+              <tr><th><input
+                type="checkbox"
+                aria-label="Select all house registrations"
+                checked={Boolean(captainRegs?.length) && (captainRegs || []).every((registration) => selectedRegistrationIds.includes(registration.id))}
+                onChange={(event) => setSelectedRegistrationIds(event.target.checked ? (captainRegs || []).map((registration) => registration.id) : [])}
+                disabled={!captainRegs?.length}
+              /></th><th>Participant</th><th>Reg No</th><th>Event</th><th>Action</th></tr>
+            </thead>
+            <tbody>
+              {captainRegs?.map((registration) => {
+                const event = cfg.events?.find((item: any) => item.id === registration.eventId);
+                return (
+                  <tr key={registration.id}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`Select ${registration.name} registration`}
+                        checked={selectedRegistrationIds.includes(registration.id)}
+                        onChange={(change) => setSelectedRegistrationIds((current) =>
+                          change.target.checked
+                            ? [...current, registration.id]
+                            : current.filter((id) => id !== registration.id)
+                        )}
+                      />
+                    </td>
+                    <td>{registration.name}</td>
+                    <td>{registration.reg}</td>
+                    <td>{event?.name || registration.eventId}</td>
+                    <td><button className="btn sm danger" onClick={() => void removeRegistration(registration.id, registration.name)}>Remove</button></td>
+                  </tr>
+                );
+              })}
+              {captainRegs?.length === 0 && <tr><td colSpan={5} className="muted">No registrations for your house yet.</td></tr>}
+              {!captainRegs && <tr><td colSpan={5} className="muted">Loading house registrations…</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }
