@@ -28,6 +28,7 @@ process.env.JUDGE_NAME = "Test Judge";
 process.env.MEDIA_UPLOAD_PASSWORD = "test-media-password";
 
 const { app, generateMigrationSql } = await import("./index.js");
+const { hashCaptainPassword, verifyCaptainPassword } = await import("./supabaseStore.js");
 let server;
 let baseUrl;
 
@@ -155,6 +156,118 @@ test("role identities and requested activity appear in the protected audit log",
   assert.ok(!JSON.stringify(logs).includes(process.env.JUDGE_PIN));
 });
 
+test("bulk registration preflight rejects the whole batch and uses the captain's assigned house", async () => {
+  const before = await request("/regs", { pin: process.env.ADMIN_PIN });
+  const invalidBatch = await request("/admin/registration/bulk/validate", {
+    method: "POST",
+    pin: process.env.ADMIN_PIN,
+    body: {
+      rows: [
+        { rowNumber: 2, reg: "TEST003", name: "Runner Three", house, gender: "Boys", eventIds: ["ath-100m-boys"] },
+        { rowNumber: 3, reg: "TEST004", name: "Runner Four", house, gender: "Boys", eventIds: ["ath-100m-boys"] },
+      ],
+    },
+  });
+  assert.equal(invalidBatch.response.status, 400);
+  assert.equal(invalidBatch.data.errors[0].row, 3);
+
+  const after = await request("/regs", { pin: process.env.ADMIN_PIN });
+  assert.equal(after.data.length, before.data.length);
+
+  const captainValidation = await request("/captain/register-bulk/validate", {
+    method: "POST",
+    pin: "captain-test-secret",
+    headers: { "x-captain": "test-captain" },
+    body: {
+      rows: [
+        { rowNumber: 2, reg: "TEST003", name: "Runner Three", house: "Untrusted House", gender: "Boys", eventIds: ["ath-100m-boys"] },
+      ],
+    },
+  });
+  assert.equal(captainValidation.response.status, 200);
+  assert.deepEqual(captainValidation.data.needsPhoto, ["TEST003"]);
+});
+
+test("Supabase persistence writes only tables changed since the loaded snapshot", async () => {
+  const savedFetch = globalThis.fetch;
+  const savedUrl = process.env.SUPABASE_URL;
+  const savedKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const tableRows = {
+    tournament_config: [{
+      id: "current",
+      name: "Test Meet",
+      max_events_per_student: 3,
+      categories: ["Athletics", "Games"],
+      genders: ["Boys", "Girls"],
+      category_points: { Athletics: [5, 3, 1], Games: [10, 5, 2] },
+      default_points: [5, 3, 1],
+      live_day: "Day 2",
+      schedule: [],
+      featured_winners: [],
+    }],
+    houses: [{ name: house, display_order: 0 }],
+    captains: [],
+    events: [{
+      id: "ath-100m-boys",
+      name: "100m",
+      category: "Athletics",
+      gender: "Boys",
+      event_type: "track",
+      points: [5, 3, 1],
+    }],
+    students: [{
+      reg_no: "TEST001",
+      full_name: "Runner One",
+      house_name: house,
+      gender: "Boys",
+      picture_url: "https://res.cloudinary.com/test/image/upload/runner.jpg",
+      picture_public_id: "dcas-sports-meet/registrations/participants/runner",
+      created_at: "2026-01-01T00:00:00.000Z",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    }],
+    registrations: [{
+      id: "registration-1",
+      reg_no: "TEST001",
+      event_id: "ath-100m-boys",
+      registered_at: "2026-01-01T00:00:00.000Z",
+    }],
+    results: [],
+    judge_submissions: [],
+    legacy_scores: [],
+    gallery_photos: [],
+    audit_logs: [],
+  };
+  const writes = [];
+  process.env.SUPABASE_URL = "https://supabase.example.test";
+  process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-role";
+  globalThis.fetch = async (input, options = {}) => {
+    const table = new URL(String(input)).pathname.split("/").pop();
+    const method = options.method || "GET";
+    if (method === "GET") return new Response(JSON.stringify(tableRows[table] || []), { status: 200 });
+    writes.push({ table, method });
+    return new Response(null, { status: 204 });
+  };
+
+  try {
+    const { loadSupabaseDatabase, persistSupabaseDatabase } = await import("./supabaseStore.js");
+    const database = await loadSupabaseDatabase();
+    assert.equal(database.regs[0].name, "Runner One");
+    await persistSupabaseDatabase(database);
+    assert.deepEqual(writes, []);
+    database.config.name = "Updated Test Meet";
+    await persistSupabaseDatabase(database);
+    assert.deepEqual(writes.map(({ table, method }) => ({ table, method })), [
+      { table: "tournament_config", method: "POST" },
+    ]);
+  } finally {
+    globalThis.fetch = savedFetch;
+    if (savedUrl === undefined) delete process.env.SUPABASE_URL;
+    else process.env.SUPABASE_URL = savedUrl;
+    if (savedKey === undefined) delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    else process.env.SUPABASE_SERVICE_ROLE_KEY = savedKey;
+  }
+});
+
 test("generated Supabase SQL enables RLS and never truncates or exports secrets", () => {
   const sql = generateMigrationSql({
     config: {
@@ -198,4 +311,12 @@ test("generated Supabase SQL enables RLS and never truncates or exports secrets"
   assert.doesNotMatch(sql, /TRUNCATE/i);
   assert.doesNotMatch(sql, /Spoofed Judge/);
   assert.doesNotMatch(sql, /private-image-data/);
+});
+
+test("house captain passwords are persisted as verifiable one-way hashes", () => {
+  const password = "secure-captain-test-password";
+  const hash = hashCaptainPassword(password);
+  assert.notEqual(hash, password);
+  assert.ok(verifyCaptainPassword(password, hash));
+  assert.equal(verifyCaptainPassword("incorrect-password", hash), false);
 });

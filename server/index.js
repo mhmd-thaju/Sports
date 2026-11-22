@@ -6,6 +6,12 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  hashCaptainPassword,
+  loadSupabaseDatabase,
+  persistSupabaseDatabase,
+  verifyCaptainPassword,
+} from "./supabaseStore.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dataDir = path.join(here, "data");
@@ -16,9 +22,18 @@ if (!fs.existsSync(dataDir)) {
 const DB = process.env.SPORTSMEET_DB_FILE
   ? path.resolve(process.env.SPORTSMEET_DB_FILE)
   : path.join(dataDir, "db.json");
-fs.mkdirSync(path.dirname(DB), { recursive: true });
+const hasSupabaseConfig = Boolean(process.env.SUPABASE_URL || process.env.SUPABASE_SERVICE_ROLE_KEY);
+const STORAGE_BACKEND = process.env.TEST === "1"
+  ? "json"
+  : process.env.STORAGE_BACKEND || (hasSupabaseConfig || process.env.NODE_ENV === "production" ? "supabase" : "json");
+const SUPABASE_MODE = STORAGE_BACKEND === "supabase" && process.env.TEST !== "1";
+if (STORAGE_BACKEND !== "json" && STORAGE_BACKEND !== "supabase") {
+  throw new Error("STORAGE_BACKEND must be either json or supabase");
+}
+if (STORAGE_BACKEND === "json") fs.mkdirSync(path.dirname(DB), { recursive: true });
 const CLOUDINARY_GALLERY_FOLDER = "dcas-sports-meet/gallery";
 const CLOUDINARY_REGISTRATION_FOLDER = "dcas-sports-meet/registrations/participants";
+const pendingRegistrationPhotos = new Map();
 const cloudinaryConfigured = Boolean(
   process.env.CLOUDINARY_CLOUD_NAME &&
   process.env.CLOUDINARY_API_KEY &&
@@ -135,7 +150,7 @@ let db = {
   auditLogs: [],
 };
 
-if (fs.existsSync(DB)) {
+if (STORAGE_BACKEND === "json" && fs.existsSync(DB)) {
   try {
     const disk = JSON.parse(fs.readFileSync(DB, "utf8"));
     db = {
@@ -169,7 +184,32 @@ for (const submission of Object.values(db.judgeSubmissions)) {
   if (submission && typeof submission === "object") submission.judge = JUDGE_NAME;
 }
 
-export const save = () => {
+let persistenceQueue = Promise.resolve();
+
+export const save = async () => {
+  if (SUPABASE_MODE) {
+    db.config.captains = (db.config.captains || []).map((captain) => {
+      if (captain.passwordHash) return captain;
+      if (!captain.password) throw new Error("A house captain password is missing");
+      const { password, ...rest } = captain;
+      return { ...rest, passwordHash: hashCaptainPassword(password) };
+    });
+    const snapshot = JSON.parse(JSON.stringify(db));
+    const next = persistenceQueue.catch(() => {}).then(() => persistSupabaseDatabase(snapshot));
+    persistenceQueue = next;
+    try {
+      await next;
+    } catch (error) {
+      try {
+        db = await loadSupabaseDatabase();
+      } catch (reloadError) {
+        console.error("Could not reload Supabase state after a failed write:", reloadError.message);
+      }
+      throw error;
+    }
+    return;
+  }
+
   try {
     fs.writeFileSync(DB + ".tmp", JSON.stringify(db, null, 2));
     fs.renameSync(DB + ".tmp", DB);
@@ -182,17 +222,17 @@ export const save = () => {
   }
 };
 
-const normalizedEvents = canonicalizeEvents(db.events);
+const normalizedEvents = SUPABASE_MODE ? db.events : canonicalizeEvents(db.events);
 if (JSON.stringify(normalizedEvents) !== JSON.stringify(db.events)) {
   db.events = normalizedEvents;
-  save();
+  if (!SUPABASE_MODE) void save();
 } else {
   db.events = normalizedEvents;
 }
 
 // Initial save if DB file does not exist
-if (!fs.existsSync(DB)) {
-  save();
+if (!SUPABASE_MODE && !fs.existsSync(DB)) {
+  void save();
 }
 
 const auth = (role) => (q, s, n) => {
@@ -223,6 +263,32 @@ function validateRequiredSecrets() {
   }
 }
 
+function validateStorageConfig() {
+  if (process.env.NODE_ENV === "production" && STORAGE_BACKEND !== "supabase") {
+    throw new Error("Production requires STORAGE_BACKEND=supabase");
+  }
+  if (STORAGE_BACKEND !== "supabase") return;
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required for Supabase storage");
+  }
+  let url;
+  try {
+    url = new URL(process.env.SUPABASE_URL);
+  } catch {
+    throw new Error("SUPABASE_URL must be a valid HTTPS URL");
+  }
+  if (url.protocol !== "https:") throw new Error("SUPABASE_URL must use HTTPS");
+}
+
+export async function initializeDatabase() {
+  validateStorageConfig();
+  if (!SUPABASE_MODE) return;
+  db = await loadSupabaseDatabase();
+  for (const submission of Object.values(db.judgeSubmissions)) {
+    if (submission && typeof submission === "object") submission.judge = JUDGE_NAME;
+  }
+}
+
 function constantTimeEqual(left, right) {
   const a = Buffer.from(String(left || ""));
   const b = Buffer.from(String(right || ""));
@@ -247,7 +313,7 @@ function appendActivityLog(entry) {
     subjectReg: safeAuditText(activity.subjectReg, 80),
     summary: safeAuditText(activity.summary, 300),
   });
-  save();
+  void save().catch((error) => console.error("Could not persist activity log:", error.message));
 }
 
 function activityForRequest(q, response) {
@@ -307,6 +373,16 @@ function activityForRequest(q, response) {
     const reg = String(q.body?.reg || "").trim().toUpperCase();
     const eventCount = Array.isArray(q.body?.eventIds) ? q.body.eventIds.length : 0;
     return { ...currentActor, action: "registration_added", entityType: "student", entityId: reg, subjectReg: reg, summary: `Added ${String(q.body?.name || "participant")} (${reg}) to ${eventCount} event(s)` };
+  }
+  if (method === "POST" && (route === "/admin/registration/bulk" || route === "/captain/register-bulk")) {
+    const rows = Array.isArray(q.body?.rows) ? q.body.rows : [];
+    const eventCount = rows.reduce((count, row) => count + (Array.isArray(row?.eventIds) ? row.eventIds.length : 0), 0);
+    return {
+      ...currentActor,
+      action: "registrations_bulk_added",
+      entityType: "student",
+      summary: `Bulk registered ${rows.length} participant(s) across ${eventCount} event registration(s)`,
+    };
   }
   if ((method === "POST" && route === "/unregister/" + q.params?.id) || (method === "POST" && route === "/captain/unregister/" + q.params?.id)) {
     return { ...currentActor, action: "registration_removed", entityType: "registration", entityId: String(q.params?.id || ""), summary: "Removed a participant registration" };
@@ -376,7 +452,12 @@ function activityForRequest(q, response) {
 function getCaptain(q) {
   const username = String(q.get("x-captain") || "").trim().toLowerCase();
   const password = String(q.get("x-pin") || "");
-  return (db.config.captains || []).find((captain) => captain.username === username && captain.password === password);
+  return (db.config.captains || []).find((captain) =>
+    captain.username === username &&
+    (captain.passwordHash
+      ? verifyCaptainPassword(password, captain.passwordHash)
+      : constantTimeEqual(captain.password, password))
+  );
 }
 
 function getMediaSession(q) {
@@ -468,22 +549,25 @@ async function removeRegistrations(registrations) {
   );
   db.regs = db.regs.filter((registration) => !ids.has(String(registration.id)));
   eventIds.forEach((eventId) => delete db.judgeSubmissions[eventId]);
-  save();
+  await save();
 
   const warnings = [];
-  for (const publicId of picturePublicIds) {
-    if (db.regs.some((registration) => registration.picturePublicId === publicId)) continue;
-    if (!cloudinaryConfigured) {
-      warnings.push("Cloudinary is not configured; a participant image could not be deleted");
-      continue;
-    }
-    try {
-      const result = await cloudinary.uploader.destroy(publicId, { resource_type: "image", invalidate: true });
-      if (result.result !== "ok" && result.result !== "not found") {
-        warnings.push("A participant image could not be deleted from Cloudinary");
-      }
-    } catch (error) {
-      warnings.push(error.message || "A participant image could not be deleted from Cloudinary");
+  const orphanedPictures = [...picturePublicIds].filter(
+    (publicId) => !db.regs.some((registration) => registration.picturePublicId === publicId)
+  );
+  if (orphanedPictures.length && !cloudinaryConfigured) {
+    warnings.push("Cloudinary is not configured; participant images could not be deleted");
+  } else {
+    for (let offset = 0; offset < orphanedPictures.length; offset += 5) {
+      const results = await Promise.all(orphanedPictures.slice(offset, offset + 5).map(async (publicId) => {
+        try {
+          const result = await cloudinary.uploader.destroy(publicId, { resource_type: "image", invalidate: true });
+          return result.result === "ok" || result.result === "not found" ? null : "A participant image could not be deleted from Cloudinary";
+        } catch {
+          return "A participant image could not be deleted from Cloudinary";
+        }
+      }));
+      warnings.push(...results.filter(Boolean));
     }
   }
   return { ok: true, removed: registrations.length, warnings };
@@ -515,7 +599,7 @@ const matchGender = (eventGender, studentGender) => {
 
 const isRelayEvent = (event) => /relay/i.test(`${event.id} ${event.name}`);
 
-function validateRegistrationRequest({ reg, name, house, gender, eventIds }) {
+function validateRegistrationRequest({ reg, name, house, gender, eventIds }, registrations = db.regs) {
   const id = norm(reg);
   const studentName = String(name || "").trim();
   const team = String(house || "").trim();
@@ -530,7 +614,7 @@ function validateRegistrationRequest({ reg, name, house, gender, eventIds }) {
     return { error: "Remove duplicate or invalid event selections" };
   }
 
-  const existing = db.regs.filter((registration) => norm(registration.reg) === id);
+  const existing = registrations.filter((registration) => norm(registration.reg) === id);
   if (existing.some((registration) =>
     String(registration.name || "").trim().toLowerCase() !== studentName.toLowerCase() ||
     registration.house !== team ||
@@ -569,7 +653,7 @@ function validateRegistrationRequest({ reg, name, house, gender, eventIds }) {
   for (const event of selectedEvents) {
     if (!event || event.category !== "Athletics") continue;
     const entrants = new Set(
-      db.regs
+      registrations
         .filter((registration) => registration.eventId === event.id && registration.house === team)
         .map((registration) => norm(registration.reg))
     );
@@ -579,6 +663,228 @@ function validateRegistrationRequest({ reg, name, house, gender, eventIds }) {
   }
 
   return { error: null, id, name: studentName, house: team, gender: division, eventIds: selectedIds };
+}
+
+let registrationQueue = Promise.resolve();
+
+async function serializeRegistration(operation) {
+  const previous = registrationQueue;
+  let release;
+  registrationQueue = new Promise((resolve) => { release = resolve; });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+async function addRegistration(q, s, assignedHouse) {
+  return serializeRegistration(async () => {
+    const registration = validateRegistrationRequest({
+      ...(q.body || {}),
+      ...(assignedHouse ? { house: assignedHouse } : {}),
+    });
+    if (registration.error) return bad(s, registration.error);
+    const existing = db.regs.filter((row) => norm(row.reg) === registration.id);
+    if (!requireCloudinary(s)) return;
+    let photo;
+    try {
+      photo = await getRegistrationPhoto(q, existing);
+    } catch (error) {
+      return bad(s, error.message || "Participant picture upload failed");
+    }
+
+    const registeredAt = new Date().toISOString();
+    for (const eventId of registration.eventIds) {
+      delete db.judgeSubmissions[eventId];
+      db.regs.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        reg: registration.id,
+        name: registration.name,
+        house: registration.house,
+        gender: registration.gender,
+        eventId,
+        picture: photo.picture,
+        picturePublicId: photo.picturePublicId,
+        registeredAt,
+      });
+    }
+    await save();
+    s.json({ ok: true, added: registration.eventIds.length });
+  });
+}
+
+function prepareBulkRegistrations(rows, assignedHouse, requirePictures, photoOwner) {
+  if (!Array.isArray(rows) || rows.length < 1 || rows.length > 100) {
+    return { errors: [{ row: 0, message: "Upload between 1 and 100 participants per batch" }], registrations: [], needsPhoto: [] };
+  }
+
+  const simulatedRegistrations = [...db.regs];
+  const registrations = [];
+  const errors = [];
+  const needsPhoto = [];
+  const seenRegisterNumbers = new Set();
+  rows.forEach((row, index) => {
+    const rowNumber = Math.max(1, Number(row?.rowNumber) || index + 2);
+    const house = assignedHouse || String(row?.house || "").trim();
+    const validation = validateRegistrationRequest({
+      reg: row?.reg,
+      name: row?.name,
+      house,
+      gender: row?.gender,
+      eventIds: row?.eventIds,
+    }, simulatedRegistrations);
+    const reg = norm(row?.reg);
+    if (reg && seenRegisterNumbers.has(reg)) {
+      errors.push({ row: rowNumber, reg, message: "Use one spreadsheet row per participant" });
+      return;
+    }
+    if (reg) seenRegisterNumbers.add(reg);
+    if (validation.error) {
+      errors.push({ row: rowNumber, reg, message: validation.error });
+      return;
+    }
+
+    const existing = simulatedRegistrations.filter((registration) => norm(registration.reg) === validation.id);
+    let picture = String(row?.picture || "");
+    let picturePublicId = String(row?.picturePublicId || "");
+    if (picture) {
+      if (!/^https:\/\/res\.cloudinary\.com\//i.test(picture) ||
+          !picturePublicId.startsWith(`${CLOUDINARY_REGISTRATION_FOLDER}/`) ||
+          pendingRegistrationPhotos.get(picturePublicId) !== photoOwner) {
+        errors.push({ row: rowNumber, reg, message: "Photo must be uploaded to the participant registration folder" });
+        return;
+      }
+    } else {
+      picture = existing.find((registration) => registration.picture)?.picture || "";
+      picturePublicId = existing.find((registration) => registration.picture)?.picturePublicId || "";
+    }
+    if (!picture && requirePictures) {
+      errors.push({ row: rowNumber, reg, message: "Participant photo is required" });
+      return;
+    }
+    if (!picture) needsPhoto.push(reg);
+
+    const staged = { ...validation, picture, picturePublicId, rowNumber };
+    registrations.push(staged);
+    validation.eventIds.forEach((eventId, eventIndex) => {
+      simulatedRegistrations.push({
+        id: `bulk-validation-${index}-${eventIndex}`,
+        reg: validation.id,
+        name: validation.name,
+        house: validation.house,
+        gender: validation.gender,
+        eventId,
+        picture,
+        picturePublicId,
+      });
+    });
+  });
+  return { errors, registrations, needsPhoto };
+}
+
+async function cleanupUnattachedRegistrationPhotos(publicIds, photoOwner) {
+  const requested = [...new Set((Array.isArray(publicIds) ? publicIds : []).map(String))]
+    .filter((id) =>
+      id.startsWith(`${CLOUDINARY_REGISTRATION_FOLDER}/`) &&
+      pendingRegistrationPhotos.get(id) === photoOwner
+    );
+  const orphaned = requested.filter((id) =>
+    !db.regs.some((registration) => registration.picturePublicId === id)
+  );
+  const warnings = [];
+  if (!orphaned.length) return warnings;
+  if (!cloudinaryConfigured) return ["Cloudinary is not configured; uploaded participant photos could not be removed"];
+  for (let offset = 0; offset < orphaned.length; offset += 5) {
+    const results = await Promise.all(orphaned.slice(offset, offset + 5).map(async (publicId) => {
+      try {
+        const result = await cloudinary.uploader.destroy(publicId, { resource_type: "image", invalidate: true });
+        if (result.result === "ok" || result.result === "not found") {
+          pendingRegistrationPhotos.delete(publicId);
+          return null;
+        }
+        return "An uploaded participant photo could not be removed from Cloudinary";
+      } catch {
+        return "An uploaded participant photo could not be removed from Cloudinary";
+      }
+    }));
+    warnings.push(...results.filter(Boolean));
+  }
+  return warnings;
+}
+
+function formatBulkRegistrationErrors(errors) {
+  const details = errors.slice(0, 20).map((error) =>
+    error.row ? `Row ${error.row}${error.reg ? ` (${error.reg})` : ""}: ${error.message}` : error.message
+  );
+  if (errors.length > details.length) details.push(`${errors.length - details.length} additional row error(s)`);
+  return details.join("; ");
+}
+
+function validateBulkRegistrationRequest(q, s, assignedHouse, photoOwner) {
+  const prepared = prepareBulkRegistrations(q.body?.rows, assignedHouse, false, photoOwner);
+  if (prepared.errors.length) {
+    return s.status(400).json({ error: formatBulkRegistrationErrors(prepared.errors), errors: prepared.errors });
+  }
+  s.json({ ok: true, needsPhoto: prepared.needsPhoto });
+}
+
+async function commitBulkRegistrationRequest(q, s, assignedHouse, photoOwner) {
+  return serializeRegistration(async () => {
+    const rows = q.body?.rows;
+    const prepared = prepareBulkRegistrations(rows, assignedHouse, true, photoOwner);
+    if (prepared.errors.length) {
+      const cleanupWarnings = await cleanupUnattachedRegistrationPhotos(
+        (Array.isArray(rows) ? rows : []).map((row) => row?.picturePublicId),
+        photoOwner
+      );
+      return s.status(400).json({
+        error: formatBulkRegistrationErrors(prepared.errors),
+        errors: prepared.errors,
+        warnings: cleanupWarnings,
+      });
+    }
+
+    const registeredAt = new Date().toISOString();
+    const affectedEvents = new Set();
+    let added = 0;
+    for (const registration of prepared.registrations) {
+      for (const eventId of registration.eventIds) {
+        affectedEvents.add(eventId);
+        delete db.judgeSubmissions[eventId];
+        db.regs.push({
+          id: randomUUID(),
+          reg: registration.id,
+          name: registration.name,
+          house: registration.house,
+          gender: registration.gender,
+          eventId,
+          picture: registration.picture,
+          picturePublicId: registration.picturePublicId,
+          registeredAt,
+        });
+        added += 1;
+      }
+    }
+    try {
+      await save();
+    } catch (error) {
+      console.error("Bulk registration persistence failed:", error.message);
+      const cleanupWarnings = await cleanupUnattachedRegistrationPhotos(
+        prepared.registrations.map((registration) => registration.picturePublicId),
+        photoOwner
+      );
+      return s.status(503).json({
+        error: "Bulk registration could not be saved. Refresh the registration list before retrying.",
+        warnings: cleanupWarnings,
+      });
+    }
+    prepared.registrations.forEach((registration) => {
+      if (registration.picturePublicId) pendingRegistrationPhotos.delete(registration.picturePublicId);
+    });
+    s.json({ ok: true, participants: prepared.registrations.length, added, affectedEvents: affectedEvents.size });
+  });
 }
 
 function state() {
@@ -976,7 +1282,10 @@ app.post("/api/register", (q, s) => {
 app.post("/api/captain/login", (q, s) => {
   const { username, password } = q.body || {};
   const captain = (db.config.captains || []).find(
-    (c) => c.username === String(username || "").trim().toLowerCase() && c.password === String(password || "")
+    (c) => c.username === String(username || "").trim().toLowerCase() &&
+      (c.passwordHash
+        ? verifyCaptainPassword(password, c.passwordHash)
+        : constantTimeEqual(c.password, password))
   );
   if (!captain) return s.status(401).json({ error: "Invalid house captain credentials" });
   q.auditActor = {
@@ -996,34 +1305,7 @@ app.get("/api/captain/registrations", (q, s) => {
 app.post("/api/captain/register", async (q, s) => {
   const captain = getCaptain(q);
   if (!captain) return s.status(401).json({ error: "Invalid house captain credentials" });
-  const registration = validateRegistrationRequest({ ...(q.body || {}), house: captain.house });
-  if (registration.error) return bad(s, registration.error);
-  const existing = db.regs.filter((row) => norm(row.reg) === registration.id);
-  if (!requireCloudinary(s)) return;
-  let photo;
-  try {
-    photo = await getRegistrationPhoto(q, existing);
-  } catch (error) {
-    return bad(s, error.message || "Participant picture upload failed");
-  }
-
-  const registeredAt = new Date().toISOString();
-  for (const eventId of registration.eventIds) {
-    delete db.judgeSubmissions[eventId];
-    db.regs.push({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      reg: registration.id,
-      name: registration.name,
-      house: registration.house,
-      gender: registration.gender,
-      eventId,
-      picture: photo.picture,
-      picturePublicId: photo.picturePublicId,
-      registeredAt,
-    });
-  }
-  save();
-  s.json({ ok: true, added: registration.eventIds.length });
+  return addRegistration(q, s, captain.house);
 });
 
 // Student points & status lookup
@@ -1070,7 +1352,7 @@ app.get("/api/entries/:eid", auth("judge"), (q, s) => {
   });
 });
 
-app.post("/api/judge/submit/:eid", auth("judge"), (q, s) => {
+app.post("/api/judge/submit/:eid", auth("judge"), async (q, s) => {
   const eventId = q.params.eid;
   if (db.results[eventId]) return bad(s, "This event is already published; ask an admin to unpublish it before resubmitting");
   if (!db.events.some((event) => event.id === eventId)) return bad(s, "Event not found");
@@ -1100,43 +1382,48 @@ app.post("/api/judge/submit/:eid", auth("judge"), (q, s) => {
       .map((item) => ({ reg: String(item.reg), position: Number(item.position) }))
       .sort((a, b) => a.position - b.position),
   };
-  save();
+  await save();
   s.json({ ok: true, submission: db.judgeSubmissions[eventId] });
 });
 
-app.post("/api/score", auth("judge"), (q, s) => {
+app.post("/api/score", auth("judge"), async (q, s) => {
   const { eventId, reg, score } = q.body;
   const judge = JUDGE_NAME;
   const n = Number(score);
   if (!(n >= 0 && n <= 100)) return bad(s, "Score must be 0 to 100");
   const row = db.scores.find((x) => x.eventId === eventId && x.reg === reg && x.judge === judge);
   row ? (row.score = n) : db.scores.push({ eventId, reg, judge, score: n });
-  save();
+  await save();
   s.json({ ok: true });
 });
 
 // =================== ADMIN MANAGEMENT ===================
 
 // Update Team / House Names
-app.post("/api/admin/teams", auth("admin"), (q, s) => {
+app.post("/api/admin/teams", auth("admin"), async (q, s) => {
   const { houses } = q.body;
   if (!Array.isArray(houses) || !houses.length) return bad(s, "Must provide at least one team");
   const cleaned = houses.map((h) => String(h || "").trim()).filter(Boolean);
   if (!cleaned.length) return bad(s, "Team names cannot be empty");
   db.config.houses = [...new Set(cleaned)];
-  save();
+  await save();
   s.json({ ok: true, houses: db.config.houses });
 });
 
 app.get("/api/admin/captains", auth("admin"), (_q, s) => {
-  s.json({ captains: db.config.captains || [] });
+  s.json({
+    captains: (db.config.captains || []).map(({ password, ...captain }) => ({
+      ...Object.fromEntries(Object.entries(captain).filter(([key]) => key !== "passwordHash")),
+      password: password || "",
+    })),
+  });
 });
 
 app.get("/api/admin/judge-submissions", auth("admin"), (_q, s) => {
   s.json(db.judgeSubmissions || {});
 });
 
-app.post("/api/admin/site-content", auth("admin"), (q, s) => {
+app.post("/api/admin/site-content", auth("admin"), async (q, s) => {
   const { liveDay, schedule, featuredWinners } = q.body || {};
   if (typeof liveDay !== "string" || !liveDay.trim()) return bad(s, "Live day is required");
   if (!Array.isArray(schedule) || !Array.isArray(featuredWinners)) return bad(s, "Schedule and featured winners must be lists");
@@ -1168,7 +1455,7 @@ app.post("/api/admin/site-content", auth("admin"), (q, s) => {
   db.config.liveDay = liveDay.trim();
   db.config.schedule = cleanSchedule;
   db.config.featuredWinners = cleanWinners;
-  save();
+  await save();
   s.json({
     ok: true,
     liveDay: db.config.liveDay,
@@ -1178,50 +1465,101 @@ app.post("/api/admin/site-content", auth("admin"), (q, s) => {
 });
 
 app.post("/api/admin/registration", auth("admin"), async (q, s) => {
-  const registration = validateRegistrationRequest(q.body || {});
-  if (registration.error) return bad(s, registration.error);
-  const existing = db.regs.filter((row) => norm(row.reg) === registration.id);
+  return addRegistration(q, s);
+});
+
+app.post("/api/admin/registration/bulk/validate", auth("admin"), (q, s) => {
+  validateBulkRegistrationRequest(q, s, undefined, "admin:admin");
+});
+
+app.post("/api/captain/register-bulk/validate", (q, s) => {
+  const captain = getCaptain(q);
+  if (!captain) return s.status(401).json({ error: "Invalid house captain credentials" });
+  validateBulkRegistrationRequest(q, s, captain.house, `captain:${captain.username}`);
+});
+
+app.post("/api/admin/registration/photo", auth("admin"), async (q, s) => {
   if (!requireCloudinary(s)) return;
-  let photo;
   try {
-    photo = await getRegistrationPhoto(q, existing);
+    const uploaded = await uploadImageData(String(q.body?.picture || ""), CLOUDINARY_REGISTRATION_FOLDER);
+    pendingRegistrationPhotos.set(uploaded.publicId, "admin:admin");
+    s.json({ picture: uploaded.secureUrl, picturePublicId: uploaded.publicId });
   } catch (error) {
     return bad(s, error.message || "Participant picture upload failed");
   }
+});
 
-  const registeredAt = new Date().toISOString();
-  for (const eventId of registration.eventIds) {
-    delete db.judgeSubmissions[eventId];
-    db.regs.push({
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      reg: registration.id,
-      name: registration.name,
-      house: registration.house,
-      gender: registration.gender,
-      eventId,
-      picture: photo.picture,
-      picturePublicId: photo.picturePublicId,
-      registeredAt,
-    });
+app.post("/api/captain/registration/photo", async (q, s) => {
+  const captain = getCaptain(q);
+  if (!captain) return s.status(401).json({ error: "Invalid house captain credentials" });
+  if (!requireCloudinary(s)) return;
+  try {
+    const uploaded = await uploadImageData(String(q.body?.picture || ""), CLOUDINARY_REGISTRATION_FOLDER);
+    pendingRegistrationPhotos.set(uploaded.publicId, `captain:${captain.username}`);
+    s.json({ picture: uploaded.secureUrl, picturePublicId: uploaded.publicId });
+  } catch (error) {
+    return bad(s, error.message || "Participant picture upload failed");
   }
-  save();
-  s.json({ ok: true, added: registration.eventIds.length });
+});
+
+app.post("/api/admin/registration/bulk", auth("admin"), async (q, s) => {
+  return commitBulkRegistrationRequest(q, s, undefined, "admin:admin");
+});
+
+app.post("/api/captain/register-bulk", async (q, s) => {
+  const captain = getCaptain(q);
+  if (!captain) return s.status(401).json({ error: "Invalid house captain credentials" });
+  return commitBulkRegistrationRequest(q, s, captain.house, `captain:${captain.username}`);
+});
+
+app.delete("/api/admin/registration/photos", auth("admin"), async (q, s) => {
+  const warnings = await cleanupUnattachedRegistrationPhotos(q.body?.publicIds, "admin:admin");
+  s.json({ ok: true, warnings });
+});
+
+app.delete("/api/captain/registration/photos", async (q, s) => {
+  const captain = getCaptain(q);
+  if (!captain) return s.status(401).json({ error: "Invalid house captain credentials" });
+  const warnings = await cleanupUnattachedRegistrationPhotos(q.body?.publicIds, `captain:${captain.username}`);
+  s.json({ ok: true, warnings });
 });
 
 // Generate or update house-captain credentials
-app.post("/api/admin/captains", auth("admin"), (q, s) => {
+app.post("/api/admin/captains", auth("admin"), async (q, s) => {
   const { captains } = q.body || {};
   if (!Array.isArray(captains)) return bad(s, "Captain list is required");
-  db.config.captains = captains
-    .map((c) => ({
-      house: String(c.house || "").trim(),
-      name: String(c.name || "").trim(),
-      username: String(c.username || "").trim().toLowerCase(),
-      password: String(c.password || ""),
-    }))
-    .filter((c) => c.house && c.username && c.password);
-  save();
-  s.json({ ok: true, captains: db.config.captains });
+  const existingByUsername = new Map((db.config.captains || []).map((captain) => [captain.username, captain]));
+  const normalizedCaptains = captains.map((captain) => {
+    const house = String(captain.house || "").trim();
+    const username = String(captain.username || "").trim().toLowerCase();
+    const password = String(captain.password || "");
+    const existing = existingByUsername.get(username);
+    if (!password && existing && existing.house === house) {
+      return { ...existing, name: String(captain.name || "").trim() || username };
+    }
+    return {
+      house,
+      name: String(captain.name || "").trim(),
+      username,
+      password,
+    };
+  }).filter((captain) => captain.house && captain.username && (captain.password || captain.passwordHash));
+  if (new Set(normalizedCaptains.map((captain) => captain.house)).size !== normalizedCaptains.length ||
+      new Set(normalizedCaptains.map((captain) => captain.username)).size !== normalizedCaptains.length) {
+    return bad(s, "Each house and captain username must be unique");
+  }
+  if (SUPABASE_MODE && normalizedCaptains.some((captain) => !captain.passwordHash && captain.password.length < 8)) {
+    return bad(s, "Captain passwords must be at least 8 characters");
+  }
+  const responseCaptains = normalizedCaptains.map((captain) => ({
+    house: captain.house,
+    name: captain.name,
+    username: captain.username,
+    password: captain.password || "",
+  }));
+  db.config.captains = normalizedCaptains;
+  await save();
+  s.json({ ok: true, captains: responseCaptains });
 });
 
 // Gallery photos
@@ -1244,7 +1582,7 @@ app.post("/api/admin/gallery", auth("admin"), async (q, s) => {
     uploadedAt: uploaded.uploadedAt,
   };
   db.config.gallery = [item, ...(db.config.gallery || [])];
-  save();
+  await save();
   s.json({ ok: true, gallery: db.config.gallery });
 });
 
@@ -1262,7 +1600,7 @@ app.delete("/api/admin/gallery/:id", auth("admin"), async (q, s) => {
     }
   }
   db.config.gallery = (db.config.gallery || []).filter((item) => item.id !== q.params.id);
-  save();
+  await save();
   s.json({ ok: true, gallery: db.config.gallery });
 });
 
@@ -1379,13 +1717,13 @@ app.post("/api/media/complete", async (q, s) => {
   }
 
   db.config.gallery = [...verified.reverse(), ...(db.config.gallery || [])];
-  save();
+  await save();
   pendingIds.forEach((id) => session.pendingPublicIds.delete(id));
   s.json({ ok: true, added: verified.length });
 });
 
 // Update Predefined Category Points & Default Points
-app.post("/api/admin/points", auth("admin"), (q, s) => {
+app.post("/api/admin/points", auth("admin"), async (q, s) => {
   const { categoryPoints, defaultPoints: newDefaultPoints } = q.body;
   if (categoryPoints && typeof categoryPoints === "object") {
     db.config.categoryPoints = {
@@ -1396,7 +1734,7 @@ app.post("/api/admin/points", auth("admin"), (q, s) => {
   if (Array.isArray(newDefaultPoints) && newDefaultPoints.length) {
     db.config.defaultPoints = newDefaultPoints.map(Number);
   }
-  save();
+  await save();
   s.json({
     ok: true,
     categoryPoints: db.config.categoryPoints,
@@ -1405,7 +1743,7 @@ app.post("/api/admin/points", auth("admin"), (q, s) => {
 });
 
 // Add or Edit Event (split by Category: Athletics/Games and Gender: Boys/Girls)
-app.post("/api/admin/event", auth("admin"), (q, s) => {
+app.post("/api/admin/event", auth("admin"), async (q, s) => {
   const { id, name, category, gender, type, points } = q.body;
   if (!name || !String(name).trim()) return bad(s, "Event name is required");
   const validCategory = category === "Games" ? "Games" : "Athletics";
@@ -1441,12 +1779,12 @@ app.post("/api/admin/event", auth("admin"), (q, s) => {
     db.events.push(eventObj);
   }
 
-  save();
+  await save();
   s.json({ ok: true, event: eventObj, events: db.events });
 });
 
 // Helper for event deletion
-const deleteEventHandler = (q, s) => {
+const deleteEventHandler = async (q, s) => {
   const eid = q.params.id;
   const beforeCount = db.events.length;
   db.events = db.events.filter((e) => e.id !== eid);
@@ -1454,7 +1792,7 @@ const deleteEventHandler = (q, s) => {
   delete db.judgeSubmissions[eid];
   db.scores = db.scores.filter((sc) => sc.eventId !== eid);
   db.regs = db.regs.filter((r) => r.eventId !== eid);
-  save();
+  await save();
   s.json({ ok: true, deletedId: eid, removed: beforeCount !== db.events.length, events: db.events });
 };
 
@@ -1470,7 +1808,7 @@ app.post("/api/admin/event/:id", auth("admin"), (q, s, next) => {
 });
 
 // Reset events back to initial data from Sportsitem.txt
-app.post("/api/admin/reset-events", auth("admin"), (q, s) => {
+app.post("/api/admin/reset-events", auth("admin"), async (q, s) => {
   db.events = JSON.parse(JSON.stringify(defaultEvents));
   db.config.categoryPoints = {
     Athletics: [5, 3, 1],
@@ -1483,7 +1821,7 @@ app.post("/api/admin/reset-events", auth("admin"), (q, s) => {
     db.judgeSubmissions = {};
     db.results = {};
   }
-  save();
+  await save();
   s.json({ ok: true, events: db.events, config: db.config });
 });
 
@@ -1501,7 +1839,7 @@ app.get("/api/admin/db/export-sql", auth("admin"), (_q, s) => {
     .send(sql);
 });
 
-app.post("/api/admin/db/import", auth("admin"), (q, s) => {
+app.post("/api/admin/db/import", auth("admin"), async (q, s) => {
   const imported = q.body;
   if (!imported || typeof imported !== "object") return bad(s, "Invalid JSON database import");
   if (imported.config) db.config = { ...db.config, ...imported.config };
@@ -1517,12 +1855,12 @@ app.post("/api/admin/db/import", auth("admin"), (q, s) => {
     );
   }
   if (imported.results && typeof imported.results === "object") db.results = imported.results;
-  save();
+  await save();
   s.json({ ok: true, db });
 });
 
 // Publish podium places
-app.post("/api/publish/:eid", auth("admin"), (q, s) => {
+app.post("/api/publish/:eid", auth("admin"), async (q, s) => {
   const eid = q.params.eid;
   const event = db.events.find((item) => item.id === eid);
   if (!event) return bad(s, "Event not found");
@@ -1565,14 +1903,14 @@ app.post("/api/publish/:eid", auth("admin"), (q, s) => {
   places = places.slice(0, 3);
 
   db.results[eid] = { places, at: new Date().toISOString() };
-  save();
+  await save();
   s.json({ ok: true, places });
 });
 
 // Undo publication
-app.post("/api/unpublish/:eid", auth("admin"), (q, s) => {
+app.post("/api/unpublish/:eid", auth("admin"), async (q, s) => {
   delete db.results[q.params.eid];
-  save();
+  await save();
   s.json({ ok: true });
 });
 
@@ -1651,8 +1989,14 @@ if (fs.existsSync(dist)) {
 
 const PORT = process.env.PORT || 3001;
 if (!process.env.TEST && process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+  validateStorageConfig();
   validateRequiredSecrets();
-  app.listen(PORT, () => console.log("Sports Meet API running on port " + PORT));
+  initializeDatabase()
+    .then(() => app.listen(PORT, () => console.log(`Sports Meet API running on ${STORAGE_BACKEND} storage on port ${PORT}`)))
+    .catch((error) => {
+      console.error(`Sports Meet API startup failed: ${error.message}`);
+      process.exitCode = 1;
+    });
 }
 
 export { app };

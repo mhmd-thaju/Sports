@@ -1,6 +1,6 @@
 # DCAS Sports Meet – Build Tracker
 
-Stack: React 19 + Vite + TypeScript · Node/Express API · JSON file storage (`server/data/db.json`); hardened Supabase schema/export, but no runtime database cutover yet.
+Stack: React 19 + Vite + TypeScript · Node/Express API · Supabase runtime storage when configured, with JSON file storage for local development.
 Status key: ✅ done · 🟡 partial · ⬜ todo
 
 ## Run it
@@ -17,15 +17,18 @@ ADMIN_PIN=use-a-unique-secret-of-at-least-8-characters
 JUDGE_PIN=use-a-different-unique-secret-of-at-least-8-characters
 ADMIN_NAME=George
 JUDGE_NAME=Judge
+SUPABASE_URL=https://your-project-id.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your_server_only_service_role_secret
+STORAGE_BACKEND=supabase
 ```
-The API will not start if either PIN is missing, shorter than eight characters, or identical to the other. The Admin and Judge login screens verify the PIN with the server and use these configured actor names; users cannot type a different name.
+The API will not start if either PIN is missing, shorter than eight characters, or identical to the other. With Supabase credentials configured, the API loads database state before listening and persists mutations to Supabase. Production requires Supabase; the service-role key must remain server-only.
 
-The API currently stores operational data and audit records in `server/data/db.json`. On a host with persistent storage, `SPORTSMEET_DB_FILE` may point to a database file on the mounted volume. Supabase is not the runtime database until the persistence adapter is implemented. `npm run db:migrate` writes sensitive data snapshots to the ignored `server/data/exports/` folder.
+Without Supabase credentials, local development uses `server/data/db.json`. Set `STORAGE_BACKEND=json` to explicitly select JSON storage. `npm run db:push` previews the initial data import; `npm run db:push -- --apply` imports it into an empty Supabase project. `npm run db:migrate` continues to generate a sensitive SQL snapshot under the ignored `server/data/exports/` folder.
 
 ## Code map
 | Area | Files |
 |---|---|
-| Config & Local DB | `server/data/db.json`, `server/config.json` |
+| Config & Persistence | `server/index.js`, `server/supabaseStore.js`, `server/data/db.json` |
 | API + Business Rules | `server/index.js` |
 | Pages | `src/pages/{Home,Register,Results,Points,Judge,Admin,Poster}.tsx` |
 | Shared | `src/api.ts`, `src/hooks.ts`, `src/components/{BottomNav,PinGate}.tsx` |
@@ -39,18 +42,18 @@ The API currently stores operational data and audit records in `server/data/db.j
 | Admin Event Entry (by category & gender) | ✅ | Enter, edit, and delete events separately for Boys and Girls |
 | Predefined Points Configuration | ✅ | Configure points for Athletics (5/3/1) & Games (10/5/2) + per-event points |
 | Admin Team / House Name Management | ✅ | Rename, add, or delete tournament teams in the local database |
-| Local Database Persistence | ✅ | All admin config, events, and results saved in `server/data/db.json` |
+| Database Persistence | ✅ | Supabase is the configured runtime database; JSON remains available for local development |
 | Private Poster Studio | ✅ | Removed from public nav; gated with Admin PIN; launched via Admin desk |
 | Participation Rules | ✅ | Up to 3 individual Athletics events plus one relay per student; 3 participants per house per Athletics event (4 for relay); Games registrations form one house roster with no student cap |
-| Student Registration | ✅ | House captains and admins can add participants with register number, name, house, division, photo, and rule-validated events |
+| Student Registration | ✅ | House captains and admins can add participants individually or import up to 100 CSV/Excel rows with separately matched photos and server-side batch validation |
 | Judge Placings & Admin Publishing | ✅ | Judges submit unique positions for every participant/team; admins review and publish the top three |
-| Homepage Content Controls | ✅ | Admin live-day label is persisted in `db.json`; published event winners display automatically unless featured winners are configured |
+| Homepage Content Controls | ✅ | Admin live-day label and schedule are persisted by the selected server database; published event winners display automatically unless featured winners are configured |
 | Live Results & House Standings | ✅ | Auto-calculates points from predefined event scales; category/gender filters |
 | Student Points Check | ✅ | Lookup by reg number showing event category, status, and points earned |
 | Victory Poster Studio | ✅ | Wrapped, bounded title/subtitle and separated podium layout prevent text overlap |
 | Admin Desk Podium Publishing | ✅ | Review judge submissions or publish manually; points are calculated automatically and publications can be undone |
 | Registration CSV Export | ✅ | Full export with RegNo, Name, House, Gender, Category, EventName |
-| Public Home | ✅ | Live house standings and published winners connected to local DB |
+| Public Home | ✅ | Live house standings and published winners use the Express API database |
 
 ## Change Log
 - **2026-11-21 (Participation Rules, Judge Placings & Victory Poster)**:

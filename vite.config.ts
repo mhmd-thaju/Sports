@@ -148,10 +148,19 @@ function figmaSiteConfiguration(config: FigmaSiteConfiguration): Plugin {
         if (favicon) {
           tags.push({ tag: "link", attrs: { rel: "icon", href: favicon }, injectTo: "head" });
         }
+        tags.push({
+          tag: "meta",
+          attrs: { property: "og:type", content: "website" },
+          injectTo: "head",
+        });
         if (title) {
           tags.push({
             tag: "meta",
             attrs: { property: "og:title", content: title },
+            injectTo: "head",
+          }, {
+            tag: "meta",
+            attrs: { name: "twitter:title", content: title },
             injectTo: "head",
           });
         }
@@ -159,6 +168,10 @@ function figmaSiteConfiguration(config: FigmaSiteConfiguration): Plugin {
           tags.push({
             tag: "meta",
             attrs: { property: "og:description", content: description },
+            injectTo: "head",
+          }, {
+            tag: "meta",
+            attrs: { name: "twitter:description", content: description },
             injectTo: "head",
           });
         }
@@ -180,6 +193,12 @@ function figmaSiteConfiguration(config: FigmaSiteConfiguration): Plugin {
               injectTo: "head",
             },
           );
+        } else {
+          tags.push({
+            tag: "meta",
+            attrs: { name: "twitter:card", content: "summary" },
+            injectTo: "head",
+          });
         }
 
         if (googleAnalyticsId) {

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../api";
 import { usePoll } from "../hooks";
 import { isRelayEvent } from "../localDb";
+import BulkRegistrationImport from "../components/BulkRegistrationImport";
 
 export default function Register() {
   const cfg = usePoll("/config", 5000);
@@ -209,6 +210,15 @@ export default function Register() {
 
       {message && <p className={message.ok ? "ok" : "err"}>{message.text}</p>}
       <button className="btn" onClick={submit}>Register Participant</button>
+
+      <BulkRegistrationImport
+        events={cfg.events || []}
+        houses={cfg.houses || []}
+        captainUsername={session.username}
+        captainPassword={session.password}
+        house={session.house}
+        onComplete={() => setMessage({ ok: true, text: "Bulk registration completed successfully." })}
+      />
 
       <section style={{ marginTop: "32px", borderTop: "1px solid var(--line)", paddingTop: "24px" }}>
         <div className="flex-between" style={{ marginBottom: "12px" }}>

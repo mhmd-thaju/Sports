@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { usePoll } from "../hooks";
 import PinGate from "../components/PinGate";
+import BulkRegistrationImport from "../components/BulkRegistrationImport";
 import { triggerFileDownload, SPORTSITEM_EVENTS, isRelayEvent } from "../localDb";
 
 interface EventItem {
@@ -253,7 +254,7 @@ function Panel({ pin }: { pin: string }) {
         },
         pin
       );
-      flash("Predefined points updated and saved to local database ✓");
+      flash("Predefined points updated and saved to server database ✓");
     } catch (e: any) {
       flash(e.message, true);
     }
@@ -289,7 +290,7 @@ function Panel({ pin }: { pin: string }) {
   const saveTeamsConfig = async () => {
     try {
       await api("/admin/teams", { houses: currentTeams }, pin);
-      flash("Team names saved to local database ✓");
+      flash("Team names saved to server database ✓");
     } catch (e: any) {
       flash(e.message, true);
     }
@@ -299,15 +300,20 @@ function Panel({ pin }: { pin: string }) {
 
   const generateCaptainCredentials = () => {
     const existing = new Map(currentCaptains.map((c) => [c.house, c]));
+    const generatePassword = () => {
+      const bytes = window.crypto.getRandomValues(new Uint8Array(8));
+      return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+    };
     setCaptainsList(
       currentTeams.map((house) => {
         const current = existing.get(house);
         const slug = house.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-        return current || {
+        return {
+          ...current,
           house,
-          name: `${house} Captain`,
-          username: `${slug}-captain`,
-          password: `${slug.slice(0, 4)}${Math.floor(1000 + Math.random() * 9000)}`,
+          name: current?.name || `${house} Captain`,
+          username: current?.username || `${slug}-captain`,
+          password: generatePassword(),
         };
       })
     );
@@ -1016,7 +1022,7 @@ function Panel({ pin }: { pin: string }) {
         <div style={{ maxWidth: "600px" }}>
           <h3>Predefined Points Configuration</h3>
           <p className="muted" style={{ marginBottom: "20px" }}>
-            Assign default points awarded for 1st, 2nd, and 3rd place across <strong>Athletics</strong> (5, 3, 1) and <strong>Games</strong> (10, 5, 2). Individual events can also override these defaults. Changes are automatically saved to the local database.
+            Assign default points awarded for 1st, 2nd, and 3rd place across <strong>Athletics</strong> (5, 3, 1) and <strong>Games</strong> (10, 5, 2). Individual events can also override these defaults. Changes are automatically saved to the server database.
           </p>
 
           <div className="card" style={{ background: "#f8fafc" }}>
@@ -1291,6 +1297,13 @@ function Panel({ pin }: { pin: string }) {
             <button type="button" className="btn" onClick={addAdminRegistration}>Add Participant</button>
           </div>
 
+          <BulkRegistrationImport
+            events={cfg.events || []}
+            houses={cfg.houses || []}
+            pin={pin}
+            onComplete={() => flash("Bulk registration completed successfully ✓")}
+          />
+
           <div className="flex-between" style={{ marginBottom: "16px" }}>
             <h3>Registered Participants ({totalRegsCount})</h3>
             <input
@@ -1393,7 +1406,7 @@ function Panel({ pin }: { pin: string }) {
         <div style={{ maxWidth: "700px" }}>
           <h3>Database Persistence & Cloud Migration</h3>
           <p className="muted" style={{ marginBottom: "18px" }}>
-            The Express API currently persists data in its server-side JSON database. SQL exports include the schema and eligible records, but omit legacy captain passwords and base64 images. Review exports carefully and run them only in a new Supabase project.
+            The Express API uses the configured server database. Supabase mode stores captain passwords as one-way hashes; SQL snapshots omit captain credentials and embedded images. Keep exports private and import them only into a new Supabase project.
           </p>
 
           {/* Status Box */}

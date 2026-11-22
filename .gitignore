@@ -2,7 +2,9 @@ node_modules/
 dist/
 build/
 .cache/
+# Keep real environment files private; commit only the safe template.
 .env*
+!.env.example
 .vite/
 vite.config.*.timestamp-*
 *.tsbuildinfo
@@ -13,6 +15,11 @@ logs/
 .claude-replay.*
 .tmp-*
 /.figma/design-context/
+/coverage/
+/playwright-report/
+/test-results/
+.DS_Store
+Thumbs.db
 
 # Platform-managed agentplat state, not project source. In the
 # client-initiated single-repo workspace layout (make's `Path: "."` spec) the

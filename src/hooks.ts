@@ -10,12 +10,18 @@ export function usePoll<T = any>(path: string, ms = 5000, pin?: string, judge?: 
 
   useEffect(() => {
     let on = true;
+    let loading = false;
     const load = () => {
+      if (loading) return;
+      loading = true;
       api(path, undefined, pin, judge)
         .then((d) => {
           if (on) setData(d);
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => {
+          loading = false;
+        });
     };
 
     load();

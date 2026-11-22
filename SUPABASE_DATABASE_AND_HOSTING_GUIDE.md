@@ -1,12 +1,14 @@
 # Supabase Database and Hosting Guide
 
-This guide explains how to create a Supabase PostgreSQL database for the Sports Meet, move the current app data into it, and connect the deployed Express API to Supabase. Creating a Supabase project alone does **not** make this app use it: today, the API reads and writes `server/data/db.json`.
+This guide explains how to create a Supabase PostgreSQL database for the Sports Meet, import existing app data, and run the Express API with Supabase.
 
 ## Current database and SQL exports
 
-The app still reads and writes `server/data/db.json`; Supabase is not yet the runtime database. The checked-in [migration_supabase.sql](./server/data/migration_supabase.sql) creates the complete schema with RLS and server-only grants, but contains no event or participant data.
+The API uses Supabase when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are configured. In production, Supabase storage is required and startup fails if it is unavailable. For local development without Supabase credentials, the API uses `server/data/db.json`; set `STORAGE_BACKEND=json` to explicitly choose local JSON storage.
 
-`npm run db:migrate` and the authenticated Admin SQL export create an idempotent data snapshot under `server/data/exports/` (or download it in the browser). These snapshots include participant and activity records, exclude legacy captain passwords, and skip non-HTTPS/base64 images. Treat them as sensitive. Run a snapshot only against a new/empty Supabase project with the schema below; it does not delete records absent from the source JSON and does not switch the app to Supabase.
+The checked-in [migration_supabase.sql](./server/data/migration_supabase.sql) creates the complete schema with RLS and server-only grants. `npm run db:push` previews counts; `npm run db:push -- --apply` imports the current local JSON data into an empty Supabase project. The API loads Supabase data at startup and waits for database writes before reporting mutation success.
+
+`npm run db:migrate` and the authenticated Admin SQL export generate SQL snapshots. These include eligible participant and activity records, exclude captain passwords, and skip base64 images. Treat snapshots as sensitive and use them only when bootstrapping a new project.
 
 ## 1. Create a Supabase project
 
@@ -169,43 +171,22 @@ Add these variables to the local `.env` file and to the API host's secret settin
 ```dotenv
 SUPABASE_URL=https://your-project-id.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=your_server_only_service_role_secret
+STORAGE_BACKEND=supabase
 ADMIN_PIN=use-a-unique-secret-of-at-least-8-characters
 JUDGE_PIN=use-a-different-unique-secret-of-at-least-8-characters
 ADMIN_NAME=George
 JUDGE_NAME=Judge
 ```
 
-`ADMIN_PIN` and `JUDGE_PIN` are required, must differ, and must each be at least eight characters. The API refuses to start without them. The login page verifies the PIN with the server; actor names are fixed by server configuration rather than entered by the browser. The repository ignores `.env*`; never commit the real `.env`. Use a separate Supabase project for local/staging tests; do not test migrations against the live database.
+`ADMIN_PIN` and `JUDGE_PIN` are required, must differ, and must each be at least eight characters. The API refuses to start without them. The login page verifies the PIN with the server; actor names are fixed by server configuration rather than entered by the browser. Keep Supabase and Cloudinary credentials on the server only. The repository ignores `.env*`; never commit the real `.env`.
 
-## 4. Connect the Express API
+## 4. Run the Express API with Supabase
 
 The browser already calls the Express API through `src/api.ts`. Keep that architecture: React should call the app's `/api/...` endpoints, and only the server should communicate with Supabase using the service-role key.
 
-Add the Supabase JavaScript client to the server dependencies:
+The API uses Supabase's REST interface from the server with the service-role key; no Supabase key or database credential is sent to the browser. On startup it loads the schema tables into the API process, and each mutation synchronizes the state to Supabase before returning success. Do not start multiple API instances: the current business-rule checks use a single server-side state cache and are not yet protected by database transactions across multiple instances.
 
-```bash
-npm install @supabase/supabase-js
-```
-
-Create a server-only client in a module imported by `server/index.js`:
-
-```js
-import { createClient } from "@supabase/supabase-js";
-
-if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
-}
-
-export const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY,
-  { auth: { persistSession: false, autoRefreshToken: false } }
-);
-```
-
-Replace the in-memory JSON read/write paths in `server/index.js` with a small persistence layer that implements the existing API operations using Supabase. Keep the current endpoint contracts so existing UI pages can continue to call `/api/config`, `/api/state`, `/api/regs`, registration, judge, publish, and admin endpoints.
-
-At minimum, move these operations to Supabase:
+The server loads the normalized tables into its in-memory state when it starts and synchronizes every mutation to Supabase before returning success:
 
 - Load/save tournament settings, houses, and events.
 - Create/update students and event registrations.
@@ -216,7 +197,7 @@ At minimum, move these operations to Supabase:
 - Store activity events in `audit_logs` and expose them only through an authorized Admin API.
 - Import/export database data without exposing service credentials.
 
-Do not treat Supabase as a JSON-file backup. Once switched over, requests must read from and write to Supabase; do not report success after only updating the in-memory object or `db.json`.
+Supabase is the configured runtime source of truth; the JSON file is not a fallback when Supabase mode is selected. Public and protected API reads use the state loaded from Supabase, and writes are persisted to Supabase.
 
 ## 5. Preserve the app's business rules and authentication
 
@@ -227,9 +208,11 @@ The API must continue to enforce the existing Sports Meet rules:
 - Games have no per-student event cap, and registrations from one house/event form one house team.
 - Judges must submit a complete set of unique positions before an admin can publish the top three.
 
-Keep those checks on the server. A unique constraint on `(reg_no, event_id)` prevents duplicate entries, but the per-house caps require a transaction or other concurrency-safe server/database check so two simultaneous requests cannot exceed a cap.
+Keep those checks on the server. Registration additions are serialized within the API process so simultaneous requests on one instance cannot exceed the caps. The current schema does not enforce those caps across multiple API instances; keep one instance until transaction-backed registration checks are added.
 
-House-captain credentials should be stored in a `captains` table with a one-way password hash (for example, bcrypt or Argon2), not plaintext. Do not copy the current plaintext captain passwords directly from `server/data/db.json`. Admin and judge PINs should remain server environment secrets or be replaced with a proper authenticated account system; never return them from public `/api/config`.
+Admins and house captains can bulk-register up to 100 participants from CSV or Excel using the in-app templates. Add participant images as separate files named with the register number (or set the `Photo File` column); images are uploaded to the Cloudinary participant-registration folder. The API validates the complete batch before saving, and rejects it without partial registration writes if any row violates the rules. Keep the spreadsheet and participant photos available to the importer until it reports completion.
+
+House-captain credentials are stored in the `captains` table with scrypt password hashes, not plaintext. Admin and judge PINs remain server environment secrets; never return them from public `/api/config`.
 
 RLS is enabled with no public write policies in the schema above. The server uses the service-role key and must perform authorization for every admin, judge, and captain endpoint. If the frontend is later allowed to query Supabase directly, add only the narrow public read policies required for events, published results, and gallery photos; never expose student registration tables or service-role credentials.
 
@@ -255,15 +238,17 @@ Map the data as follows:
 
 The current dashboard attributes Admin actions to George, Judge actions to the server-configured Judge name, and captain/media actions to their authenticated account. Public points lookups record the register number searched but cannot prove who made the request because student lookups have no login. Gallery opens and download-button clicks are anonymous interaction events; a click does not prove that the image finished downloading.
 
-Generate a SQL snapshot with `npm run db:migrate` or the authenticated Admin export. It reads `server/data/db.json` without changing it, uses idempotent upserts in foreign-key order, and does not truncate existing tables. The export intentionally omits captain rows because the current JSON stores plaintext passwords. Do not copy those passwords into SQL; reset and hash them through a secure import path before enabling Supabase captain login.
+The direct importer `npm run db:push -- --apply` reads `server/data/db.json`, uses the service-role key, imports in foreign-key order, and verifies row counts. It refuses to run if any target table already contains rows. The migration run completed for the current project; use it only for a new empty target, not for repeat syncs. There were no captain accounts in the source database. New captain credentials are stored in Supabase as scrypt hashes.
 
-Snapshots skip base64/data-URL images rather than copying image contents into SQL. Ensure participant and gallery images have HTTPS Cloudinary URLs before generating the data export. The generated SQL and JSON exports contain participant details and must be kept private.
+`npm run db:migrate` remains a SQL snapshot generator and does not write to Supabase. It skips base64/data-URL images rather than copying image contents into SQL. The generated SQL and JSON exports contain participant details and must be kept private.
 
-The current registration and gallery records may contain base64 data URLs. Do not use base64 image strings as the long-term Supabase storage format. Before production cutover, upload those images to Cloudinary or another object store, then import only the resulting URL and asset `public_id` into `students` / `gallery_photos`. See the [Cloudinary integration guide](./CLOUDINARY_INTEGRATION_GUIDE.md).
+The direct importer uploads embedded registration/gallery images to separate Cloudinary folders, then imports only the resulting URL and asset `public_id` into `students` / `gallery_photos`. See the [Cloudinary integration guide](./CLOUDINARY_INTEGRATION_GUIDE.md).
+
+The importer ran against the configured project. The current import had no captain or gallery rows; embedded participant photos were moved to Cloudinary's registration folder.
 
 After import, compare counts and spot-check:
 
-- All 30 standard events and configured houses.
+- Event records and configured houses.
 - Distinct students and registration rows.
 - Published result places and judge submissions.
 - Schedule, featured winners, live-day value, points configuration, gallery photos, and captain logins.
@@ -271,12 +256,11 @@ After import, compare counts and spot-check:
 
 ## 7. Deploy and cut over
 
-1. Finish the Supabase persistence adapter and pass tests using a staging Supabase project.
-2. Deploy the Express API to a Node application host. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, distinct `ADMIN_PIN` / `JUDGE_PIN`, `ADMIN_NAME`, and `JUDGE_NAME` in that host's environment settings.
-3. Deploy the Vite frontend to a static host or serve `dist/` from Express. Configure the frontend to call the deployed Express API over HTTPS.
-4. Confirm CORS or same-origin proxy configuration permits only the deployed frontend origin.
-5. Import the verified data into production and test public pages, captain registration, Admin Desk, judging, publishing, and gallery uploads.
-6. Put the API into maintenance/read-only mode during the final data import, then switch the frontend to the new API and verify the live database.
-7. Keep a protected backup of the original JSON file until the production cutover has been verified.
+1. Deploy the Express API to a Node application host. Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `STORAGE_BACKEND=supabase`, distinct `ADMIN_PIN` / `JUDGE_PIN`, `ADMIN_NAME`, and `JUDGE_NAME` in that host's environment settings.
+2. Deploy the Vite frontend to a static host or serve `dist/` from Express. Configure the frontend to call the deployed Express API over HTTPS.
+3. Confirm CORS or same-origin proxy configuration permits only the deployed frontend origin.
+4. Test public pages, captain registration, Admin Desk, judging, publishing, and gallery uploads against the deployed API.
+5. Run a single API instance. The current in-memory cache and multi-table persistence do not provide cross-instance transactions.
+6. Keep a protected backup of the original JSON file until the deployment has been verified.
 
 For ongoing operation, configure automated database backups, monitor Supabase storage/connection limits, and test restoring a backup before the sports event.
