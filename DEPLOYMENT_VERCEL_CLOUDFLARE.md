@@ -155,7 +155,25 @@ pnpm dlx wrangler@latest pages dev dist --port 8788 --binding API_ORIGIN=https:/
 
 Then open `http://localhost:8788` and test an API request.
 
-## 4. Verify each deployment
+## 4. Deploy the frontend to Cloudflare Workers
+
+If the site is deployed to a `workers.dev` address (rather than a Pages `pages.dev` address), use the Worker entry point and Wrangler configuration in this repository. The Worker serves the Vite `dist/` files and forwards `/api/*` requests to the persistent Express API.
+
+1. Deploy the Express API as described in section 1 and confirm `https://YOUR_API_HOST/api/config` returns JSON.
+2. In the `sports` Worker, add `API_ORIGIN` under **Settings → Variables and Secrets → Variables**. Set it to the API origin only, such as `https://sports-api.example.com` (no `/api` suffix).
+3. In **Builds → Build configuration**, use:
+
+   | Setting | Value |
+   |---|---|
+   | Build command | `pnpm run build` |
+   | Deploy command | `pnpm dlx wrangler deploy` |
+   | Root directory | `/` |
+
+4. Push the deployment commit to the Worker's production branch. Wrangler reads `wrangler.jsonc`, routes `/api/*` through `worker.js`, and serves the SPA from `dist/`.
+
+Without a deployed Express API and the `API_ORIGIN` variable, login and other API actions cannot work. Do not point `API_ORIGIN` at the frontend Worker itself.
+
+## 5. Verify each deployment
 
 For each frontend domain, verify the site and API proxy:
 

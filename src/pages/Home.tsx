@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { trackGalleryActivity } from "../api";
 import { usePoll } from "../hooks";
-import { SPORTSITEM_EVENTS, type ScheduleItem } from "../localDb";
+import { SPORTSITEM_EVENTS } from "../localDb";
 import { sortGalleryPhotos } from "../galleryUtils";
 
 type DisplayWinner = {
@@ -58,49 +58,6 @@ const standings = [
   { rank: 3, house: "Titan House", color: "#1db8a3", gold: 9, silver: 10, bronze: 13, points: 104 },
   { rank: 4, house: "Spartan House", color: "#6e8bf5", gold: 7, silver: 8, bronze: 9, points: 82 },
 ];
-
-const schedules = {
-  "Day 1": [
-    {
-      time: "08:00",
-      event: "March Past & Opening Ceremony",
-      venue: "Main Stadium Ground",
-      type: "Ceremony",
-    },
-    { time: "09:30", event: "100m & 200m Track Heats (Boys & Girls)", venue: "Athletics Track", type: "Track" },
-    { time: "11:00", event: "Football Preliminary Stage (Boys)", venue: "Main Football Ground", type: "Games" },
-    { time: "11:30", event: "Throwball Group Stage (Girls)", venue: "Outer Sports Arena", type: "Games" },
-    { time: "13:30", event: "Shotput & Longjump Qualifiers", venue: "Field Arena", type: "Field" },
-    { time: "15:00", event: "1500m Long Distance Final (Boys)", venue: "Athletics Track", type: "Track" },
-  ],
-  "Day 2": [
-    { time: "08:00", event: "Cricket Knockout Rounds (Boys)", venue: "Cricket Ground", type: "Games" },
-    { time: "09:30", event: "400m Sprint Finals & 600m Girls Final", venue: "Athletics Track", type: "Track" },
-    { time: "11:00", event: "Volleyball Tournament Matches (Boys)", venue: "Outdoor Volleyball Court", type: "Games" },
-    { time: "11:30", event: "Kho-Kho League Matches (Girls)", venue: "Main Field Area", type: "Games" },
-    { time: "13:30", event: "Highjump & Discus Throw Finals", venue: "Field Arena", type: "Field" },
-    { time: "15:00", event: "Mini Dodgeball Action Rounds (Girls)", venue: "Indoor Sports Hall", type: "Games" },
-  ],
-  "Day 3": [
-    { time: "09:00", event: "Badminton Finals (Boys & Girls)", venue: "Indoor Badminton Court", type: "Games" },
-    { time: "10:00", event: "Chess Championship (Boys & Girls)", venue: "College Auditorium", type: "Games" },
-    { time: "11:00", event: "Javelin Throw Championship", venue: "Field Arena", type: "Field" },
-    { time: "12:30", event: "Football Grand Final (Boys)", venue: "Main Football Ground", type: "Games" },
-    { time: "15:00", event: "4 x 100m Relay Mega Final (Boys & Girls)", venue: "Athletics Track", type: "Track" },
-    { time: "16:45", event: "Trophy Presentation & Closing Ceremony", venue: "Main Arena", type: "Ceremony" },
-  ],
-};
-
-const defaultScheduleRows = Object.entries(schedules).flatMap(([day, items]) =>
-  items.map((item) => ({
-    day,
-    time: item.time,
-    event: item.event,
-    category: item.type,
-    gender: "",
-    location: item.venue,
-  }))
-);
 
 const eventBackgrounds: Record<string, string> = {
   Football: "https://images.unsplash.com/photo-1579952363873-27f3bade9f55?auto=format&fit=crop&w=1000&q=80",
@@ -184,14 +141,11 @@ function App() {
   const s = usePoll("/state", 4000);
   const cfg = usePoll("/config", 5000);
   const galleryData = usePoll<{ photos: any[] }>("/gallery", 5000);
+  const scheduleItems = Array.isArray(cfg?.schedule) ? cfg.schedule : [];
   const [menuOpen, setMenuOpen] = useState(false);
   const [utilityOpen, setUtilityOpen] = useState(false);
   const [winnerFilter, setWinnerFilter] = useState("All");
   const [selectedPhoto, setSelectedPhoto] = useState<number | null>(null);
-  const [activeDay, setActiveDay] = useState<string>("Day 2");
-  const scheduleItems: ScheduleItem[] = cfg?.schedule?.length ? cfg.schedule : defaultScheduleRows;
-  const scheduleDays: string[] = [...new Set(scheduleItems.map((item) => item.day))];
-  const selectedDay = scheduleDays.includes(activeDay) ? activeDay : scheduleDays[0] || activeDay;
   const recentPhotos = sortGalleryPhotos(galleryData?.photos || cfg?.gallery).slice(0, 3);
   const latestPhotoCards: GalleryCard[] = recentPhotos.map((photo, index) => ({
     id: photo.id || photo.src,
@@ -335,7 +289,7 @@ function App() {
             </span>
           </button>
           <nav className="hidden items-center gap-8 lg:flex">
-            {["Schedule", "Events", "Standings", "Winners", "Gallery"].map((item) => (
+            {[...(scheduleItems.length ? ["Schedule"] : []), "Events", "Standings", "Winners", "Gallery"].map((item) => (
               <button
                 key={item}
                 onClick={() => scrollTo(item.toLowerCase())}
@@ -381,7 +335,7 @@ function App() {
         </div>
         {menuOpen && (
           <nav className="border-t border-[#002656]/10 bg-white px-5 py-5 md:hidden">
-            {["Schedule", "Events", "Standings", "Winners", "Gallery"].map((item) => (
+            {[...(scheduleItems.length ? ["Schedule"] : []), "Events", "Standings", "Winners", "Gallery"].map((item) => (
               <button
                 key={item}
                 onClick={() => scrollTo(item.toLowerCase())}
@@ -458,53 +412,6 @@ function App() {
           Sports
           <br />
           2026
-        </div>
-      </section>
-
-      <section id="schedule" className="mx-auto max-w-[1440px] px-5 py-24 md:px-10 md:py-32">
-        <div className="grid gap-14 lg:grid-cols-[.7fr_1.3fr]">
-          <div>
-            <p className="eyebrow">Up next</p>
-            <h2 className="section-title mt-5">
-              Today’s
-              <br />
-              line-up.
-            </h2>
-            <p className="mt-7 max-w-sm leading-7 text-[#59615e]">
-              The arena is ready. Follow every heat, match, and medal moment from {selectedDay}.
-            </p>
-            <div className="mt-10 inline-flex rounded-full bg-[#e7e2d7] p-1.5">
-              {scheduleDays.map((day: string) => (
-                <button
-                  key={day}
-                  onClick={() => setActiveDay(day)}
-                  className={`rounded-full px-5 py-2 text-xs font-black uppercase tracking-wider ${day === selectedDay ? "bg-[#002656] text-white" : "text-[#6b706e]"}`}
-                >
-                  {day}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div className="border-t-2 border-[#002656]">
-            {scheduleItems.filter((item: any) => item.day === selectedDay).map((item: any, index: number) => (
-              <div
-                key={`${item.day}-${item.time}-${item.event}-${index}`}
-                className="group grid grid-cols-[60px_1fr] gap-4 border-b border-[#cbc8bf] py-6 transition hover:px-4 md:grid-cols-[90px_1fr_120px] md:items-center"
-              >
-                <span className="font-display text-xl text-[#f47b00]">{item.time}</span>
-                <div>
-                  <p className="text-base font-extrabold md:text-lg">{item.event}</p>
-                  <p className="mt-1 flex items-center gap-1.5 text-xs text-[#737875]">
-                    <Icon name="map" size={13} />
-                    {item.location || item.venue}
-                  </p>
-                </div>
-                <span className="col-start-2 w-fit rounded-full border border-[#c6c4bb] px-3 py-1 text-[10px] font-bold uppercase tracking-[.15em] text-[#676d69] md:col-start-auto">
-                  {[item.category, item.gender].filter(Boolean).join(" · ")}
-                </span>
-              </div>
-            ))}
-          </div>
         </div>
       </section>
 
@@ -637,6 +544,46 @@ function App() {
           </div>
         </div>
       </section>
+
+      {scheduleItems.length > 0 && (
+        <section id="schedule" className="bg-white py-20 md:py-28">
+          <div className="mx-auto max-w-[1440px] px-5 md:px-10">
+            <div className="mb-10">
+              <p className="eyebrow">Plan your meet</p>
+              <h2 className="section-title mt-5">Event schedule.</h2>
+              <p className="mt-4 max-w-xl text-sm leading-6 text-[#626c79]">
+                Check event times, divisions, and locations for the sports meet.
+              </p>
+            </div>
+            <div className="overflow-x-auto rounded-2xl border border-[#002656]/10">
+              <table className="w-full min-w-[760px] border-collapse text-left">
+                <thead className="bg-[#002656] text-[10px] font-bold uppercase tracking-[.16em] text-white/70">
+                  <tr>
+                    <th className="px-5 py-4">Day</th>
+                    <th className="px-5 py-4">Time</th>
+                    <th className="px-5 py-4">Event</th>
+                    <th className="px-5 py-4">Category / Division</th>
+                    <th className="px-5 py-4">Location</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#002656]/10">
+                  {scheduleItems.map((item: any, index: number) => (
+                    <tr key={`${item.day}-${item.time}-${item.event}-${index}`} className="text-sm text-[#263948]">
+                      <td className="whitespace-nowrap px-5 py-4 font-bold">{item.day}</td>
+                      <td className="whitespace-nowrap px-5 py-4">{item.time}</td>
+                      <td className="px-5 py-4 font-semibold">{item.event}</td>
+                      <td className="px-5 py-4 text-[#626c79]">
+                        {[item.category, item.gender].filter(Boolean).join(" · ") || "—"}
+                      </td>
+                      <td className="px-5 py-4">{item.location}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section id="standings" className="bg-[#0d2553] py-24 text-white md:py-32">
         <div className="mx-auto max-w-[1440px] px-5 md:px-10">
@@ -813,29 +760,6 @@ function App() {
         </div>
       </section>
 
-      <section className="bg-[#f47b00] px-5 py-20 text-[#002656] md:px-10">
-        <div className="mx-auto flex max-w-[1440px] flex-col justify-between gap-10 md:flex-row md:items-center">
-          <h2 className="font-display text-6xl uppercase leading-[.85] md:text-8xl">
-            Bring the noise.
-            <br />
-            Back your house.
-          </h2>
-          <div className="max-w-sm">
-            <p className="font-semibold leading-7">
-              Finals begin Saturday at 3:00 PM. Wear your house colors and fill the stands.
-            </p>
-            <div className="mt-6 flex gap-6 text-xs font-black uppercase tracking-[.15em]">
-              <span className="flex items-center gap-2">
-                <Icon name="calendar" size={16} /> Finals Day
-              </span>
-              <span className="flex items-center gap-2">
-                <Icon name="clock" size={16} /> 3:00 PM
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
-
       <footer className="bg-[#002656] px-5 py-14 text-white md:px-10">
         <div className="mx-auto max-w-[1440px]">
           <div className="flex flex-col justify-between gap-10 border-b border-white/15 pb-12 md:flex-row">
@@ -852,7 +776,7 @@ function App() {
               </p>
             </div>
             <div className="grid grid-cols-2 gap-x-16 gap-y-3 text-sm">
-              {["Schedule", "Standings", "Winners", "Gallery"].map((item) => (
+              {[...(scheduleItems.length ? ["Schedule"] : []), "Standings", "Winners", "Gallery"].map((item) => (
                 <button
                   key={item}
                   onClick={() => scrollTo(item.toLowerCase())}
