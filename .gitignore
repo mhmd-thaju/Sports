@@ -2,6 +2,8 @@ node_modules/
 dist/
 build/
 .cache/
+.vercel/
+.wrangler/
 # Keep real environment files private; commit only the safe template.
 .env*
 !.env.example

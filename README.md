@@ -56,6 +56,8 @@ For hosted use, set `NODE_ENV=production`, `STORAGE_BACKEND=supabase`, `SUPABASE
 
 Read the [Supabase database and hosting guide](./SUPABASE_DATABASE_AND_HOSTING_GUIDE.md) before creating or importing a database. See the [Cloudinary integration guide](./CLOUDINARY_INTEGRATION_GUIDE.md) for image configuration and [development notes](./DEVELOPMENT.md) for project behavior and participation rules.
 
+For platform-specific hosting commands, read the [Vercel and Cloudflare deployment guide](./DEPLOYMENT_VERCEL_CLOUDFLARE.md). The [project context](./PROJECT_CONTEXT.md) summarizes the architecture, roles, business rules, and operational constraints.
+
 ## Figma Make configuration
 
 Keep `.figma/` while this project is developed or previewed in Figma Make. The Vite configuration imports `.figma/make/site.json` for the page and sharing metadata, and Figma Make uses the scripts and configuration in `.figma/make/`.
