@@ -789,8 +789,13 @@ function App() {
           </div>
           <div className="flex flex-col justify-between gap-3 pt-7 text-[10px] font-bold uppercase tracking-[.16em] text-white/35 md:flex-row">
             <p>© 2026 Duxford College for Advanced Studies</p>
-            <p>Campus imagery courtesy of DCAS · Sports photography via Unsplash</p>
+            <p>Campus imagery courtesy of DCAS {/*· Sports photography via Unsplash */}</p>
           </div>
+          <p className="mt-5 text-center text-xs font-semibold tracking-wide text-white/55">
+            Developed by <a href="https://muhammedthajudheen.me" target="_blank" rel="noopener noreferrer" className="text-white/55 underline hover:text-white">
+              Muhammed Thajdheen
+            </a>
+          </p>
         </div>
       </footer>
 
