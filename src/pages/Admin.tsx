@@ -78,6 +78,7 @@ function Panel({ pin }: { pin: string }) {
   const [siteContentLoaded, setSiteContentLoaded] = useState(false);
   const [liveDay, setLiveDay] = useState("Day 2");
   const [scheduleRows, setScheduleRows] = useState<any[]>([]);
+  const [scheduleImportMode, setScheduleImportMode] = useState<"append" | "replace">("append");
   const [featuredWinners, setFeaturedWinners] = useState<any[]>([]);
   const [winnerDraft, setWinnerDraft] = useState({
     event: "",
@@ -460,11 +461,22 @@ function Panel({ pin }: { pin: string }) {
       if (invalid) {
         throw new Error(`Row ${invalid.rowNumber} must include Day, Time, Event, and Location`);
       }
-      setScheduleRows(rows.map(({ rowNumber: _rowNumber, ...row }) => row));
-      flash(`Loaded ${rows.length} schedule items. Save site content to publish them.`);
+      const importedRows = rows.map(({ rowNumber: _rowNumber, ...row }) => row);
+      setScheduleRows((current) => scheduleImportMode === "append" ? [...current, ...importedRows] : importedRows);
+      const total = scheduleImportMode === "append" ? scheduleRows.length + importedRows.length : importedRows.length;
+      flash(`${scheduleImportMode === "append" ? "Appended" : "Loaded"} ${importedRows.length} schedule items (${total} total). Save site content to publish them.`);
     } catch (e: any) {
       flash(`Could not read schedule: ${e.message}`, true);
     }
+  };
+
+  const removeScheduleRow = (indexToRemove: number) => {
+    setScheduleRows((current) => current.filter((_, index) => index !== indexToRemove));
+  };
+
+  const clearSchedule = () => {
+    if (!scheduleRows.length || !confirm("Remove every schedule item? Save homepage content to publish this change.")) return;
+    setScheduleRows([]);
   };
 
   const addFeaturedWinner = () => {
@@ -718,27 +730,39 @@ function Panel({ pin }: { pin: string }) {
               <div className="flex-gap">
                 <button className="btn sm ghost" onClick={downloadScheduleCsvTemplate}>CSV Template</button>
                 <button className="btn sm ghost" onClick={downloadScheduleExcelTemplate}>Excel Template</button>
+                {scheduleRows.length > 0 && <button className="btn sm danger" onClick={clearSchedule}>Clear Schedule</button>}
               </div>
             </div>
+            <div className="flex-gap" style={{ marginTop: "12px" }} role="group" aria-label="Schedule upload mode">
+              <button className={`btn sm ${scheduleImportMode === "append" ? "success" : "ghost"}`} onClick={() => setScheduleImportMode("append")}>
+                Append uploaded rows
+              </button>
+              <button className={`btn sm ${scheduleImportMode === "replace" ? "success" : "ghost"}`} onClick={() => setScheduleImportMode("replace")}>
+                Replace schedule
+              </button>
+            </div>
+            <p className="muted" style={{ marginTop: "6px" }}>
+              {scheduleImportMode === "append" ? "New rows will be added after the current schedule." : "Uploading will replace every current schedule item."} Deletions and uploads take effect after saving homepage content.
+            </p>
             <label style={{ maxWidth: "520px", marginTop: "12px" }}>
               Upload CSV or Excel schedule
-              <input type="file" accept=".csv,.xlsx,.xls" onChange={(e) => importSchedule(e.target.files?.[0])} />
+              <input type="file" accept=".csv,.xlsx,.xls" onChange={(e) => { void importSchedule(e.target.files?.[0]); e.currentTarget.value = ""; }} />
             </label>
             {scheduleRows.length > 0 && (
               <div className="scroll">
                 <table>
                   <thead>
-                    <tr><th>Day</th><th>Time</th><th>Event</th><th>Category</th><th>Gender</th><th>Location</th></tr>
+                    <tr><th>Day</th><th>Time</th><th>Event</th><th>Category</th><th>Gender</th><th>Location</th><th>Action</th></tr>
                   </thead>
                   <tbody>
-                    {scheduleRows.slice(0, 12).map((item, index) => (
+                    {scheduleRows.map((item, index) => (
                       <tr key={`${item.day}-${item.time}-${index}`}>
                         <td>{item.day}</td><td>{item.time}</td><td>{item.event}</td><td>{item.category}</td><td>{item.gender}</td><td>{item.location}</td>
+                        <td><button className="btn sm danger" onClick={() => removeScheduleRow(index)} aria-label={`Remove ${item.event} on ${item.day}`}>Remove</button></td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                {scheduleRows.length > 12 && <p className="muted">Showing the first 12 rows of {scheduleRows.length} schedule items.</p>}
               </div>
             )}
           </div>
