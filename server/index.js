@@ -64,7 +64,7 @@ const defaultHouses = [
 
 const defaultCategoryPoints = {
   Athletics: [5, 3, 1],
-  Games: [10, 5, 2],
+  Games: [10, 6, 0],
 };
 const defaultPoints = [5, 3, 1];
 
@@ -94,19 +94,19 @@ export const defaultEvents = [
   { id: "ath-javelin-girls", name: "Javelin", category: "Athletics", gender: "Girls", type: "field", points: [5, 3, 1] },
   { id: "ath-4x100mrelay-girls", name: "4 x 100m Relay", category: "Athletics", gender: "Girls", type: "team", points: [5, 3, 1] },
 
-  // Games - Boys (Points: 10, 5, 2)
-  { id: "game-football-boys", name: "Football", category: "Games", gender: "Boys", type: "team", points: [10, 5, 2] },
-  { id: "game-cricket-boys", name: "Cricket", category: "Games", gender: "Boys", type: "team", points: [10, 5, 2] },
-  { id: "game-volleyball-boys", name: "Volleyball", category: "Games", gender: "Boys", type: "team", points: [10, 5, 2] },
-  { id: "game-badminton-boys", name: "Badminton", category: "Games", gender: "Boys", type: "court", points: [10, 5, 2] },
-  { id: "game-chess-boys", name: "Chess", category: "Games", gender: "Boys", type: "court", points: [10, 5, 2] },
+  // Games - Boys (Points: 10, 6, 0)
+  { id: "game-football-boys", name: "Football", category: "Games", gender: "Boys", type: "team", points: [10, 6, 0] },
+  { id: "game-cricket-boys", name: "Cricket", category: "Games", gender: "Boys", type: "team", points: [10, 6, 0] },
+  { id: "game-volleyball-boys", name: "Volleyball", category: "Games", gender: "Boys", type: "team", points: [10, 6, 0] },
+  { id: "game-badminton-boys", name: "Badminton", category: "Games", gender: "Boys", type: "court", points: [10, 6, 0] },
+  { id: "game-chess-boys", name: "Chess", category: "Games", gender: "Boys", type: "court", points: [10, 6, 0] },
 
-  // Games - Girls (Points: 10, 5, 2)
-  { id: "game-throwball-girls", name: "Throwball", category: "Games", gender: "Girls", type: "team", points: [10, 5, 2] },
-  { id: "game-badminton-girls", name: "Badminton", category: "Games", gender: "Girls", type: "court", points: [10, 5, 2] },
-  { id: "game-minidodgeball-girls", name: "Mini Dodgeball", category: "Games", gender: "Girls", type: "team", points: [10, 5, 2] },
-  { id: "game-khokho-girls", name: "Kho-Kho", category: "Games", gender: "Girls", type: "team", points: [10, 5, 2] },
-  { id: "game-chess-girls", name: "Chess", category: "Games", gender: "Girls", type: "court", points: [10, 5, 2] },
+  // Games - Girls (Points: 10, 6, 0)
+  { id: "game-throwball-girls", name: "Throwball", category: "Games", gender: "Girls", type: "team", points: [10, 6, 0] },
+  { id: "game-badminton-girls", name: "Badminton", category: "Games", gender: "Girls", type: "court", points: [10, 6, 0] },
+  { id: "game-minidodgeball-girls", name: "Mini Dodgeball", category: "Games", gender: "Girls", type: "team", points: [10, 6, 0] },
+  { id: "game-khokho-girls", name: "Kho-Kho", category: "Games", gender: "Girls", type: "team", points: [10, 6, 0] },
+  { id: "game-chess-girls", name: "Chess", category: "Games", gender: "Girls", type: "court", points: [10, 6, 0] },
 ];
 
 function canonicalizeEvents(events) {
@@ -114,14 +114,17 @@ function canonicalizeEvents(events) {
   return defaultEvents.map((standard) => {
     const event = stored.get(standard.id);
     const storedPoints =
-      Array.isArray(event?.points) && event.points.length === 3
-        ? event.points.map((point, index) => (standard.category === "Games" && index === 1 && Number(point) === 6 ? 5 : Number(point)))
-        : standard.points;
+      standard.category === "Games" && JSON.stringify(event?.points) === JSON.stringify([10, 5, 2])
+        ? [10, 6, 0]
+        : Array.isArray(event?.points) && event.points.length === 3
+          ? event.points.map(Number)
+          : standard.points;
     return event
       ? {
           ...standard,
           type: event.type || standard.type,
           points: storedPoints,
+          registrationOpen: event.registrationOpen !== false,
         }
       : { ...standard, points: [...standard.points] };
   });
@@ -178,6 +181,10 @@ if (STORAGE_BACKEND === "json" && fs.existsSync(DB)) {
   } catch (err) {
     console.error("Failed to parse existing db.json, using defaults", err);
   }
+}
+
+if (JSON.stringify(db.config.categoryPoints?.Games) === JSON.stringify([10, 5, 2])) {
+  db.config.categoryPoints = { ...db.config.categoryPoints, Games: [10, 6, 0] };
 }
 
 for (const submission of Object.values(db.judgeSubmissions)) {
@@ -631,6 +638,9 @@ function validateRegistrationRequest({ reg, name, house, gender, eventIds }, reg
   if (selectedEvents.some((event) => !event || !matchGender(event.gender, division))) {
     return { error: "Choose valid events for the selected division" };
   }
+  if (selectedEvents.some((event) => event.registrationOpen === false)) {
+    return { error: "Registration is closed for one or more selected events" };
+  }
   if (selectedIds.some((eventId) => db.results[eventId])) {
     return { error: "An event is already published; ask an admin to unpublish it before changing registrations" };
   }
@@ -946,6 +956,11 @@ function getJudgeEntries(eventId) {
       }
       teams.get(registration.house).members++;
     }
+    if (teams.size === 0) {
+      for (const house of db.config.houses || defaultHouses) {
+        teams.set(house, { reg: house, name: `${house} Team`, house, members: 0 });
+      }
+    }
     return [...teams.values()];
   }
   const participants = new Map();
@@ -1010,7 +1025,7 @@ CREATE TABLE IF NOT EXISTS tournament_config (
   max_events_per_student integer NOT NULL DEFAULT 3,
   categories jsonb NOT NULL DEFAULT '["Athletics", "Games"]'::jsonb,
   genders jsonb NOT NULL DEFAULT '["Boys", "Girls"]'::jsonb,
-  category_points jsonb NOT NULL DEFAULT '{"Athletics":[5,3,1],"Games":[10,5,2]}'::jsonb,
+  category_points jsonb NOT NULL DEFAULT '{"Athletics":[5,3,1],"Games":[10,6,0]}'::jsonb,
   default_points integer[] NOT NULL DEFAULT '{5,3,1}',
   live_day text NOT NULL DEFAULT 'Day 2',
   schedule jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -1039,8 +1054,10 @@ CREATE TABLE IF NOT EXISTS events (
   gender text NOT NULL CHECK (gender IN ('Boys', 'Girls', 'Mixed')),
   event_type text NOT NULL DEFAULT 'track',
   points integer[] NOT NULL DEFAULT '{5,3,1}',
+  registration_open boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE events ADD COLUMN IF NOT EXISTS registration_open boolean NOT NULL DEFAULT true;
 
 CREATE TABLE IF NOT EXISTS students (
   reg_no text PRIMARY KEY,
@@ -1149,7 +1166,7 @@ ON CONFLICT (id) DO UPDATE SET
     sql += `\nINSERT INTO houses (name, display_order) VALUES (${quote(house)}, ${index}) ON CONFLICT (name) DO UPDATE SET display_order = EXCLUDED.display_order;`;
   });
   events.forEach((event) => {
-    sql += `\nINSERT INTO events (id, name, category, gender, event_type, points) VALUES (${quote(event.id)}, ${quote(event.name)}, ${quote(event.category)}, ${quote(event.gender)}, ${quote(event.type || "track")}, ${numberArray(event.points, defaultPoints)}) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category, gender = EXCLUDED.gender, event_type = EXCLUDED.event_type, points = EXCLUDED.points;`;
+    sql += `\nINSERT INTO events (id, name, category, gender, event_type, points, registration_open) VALUES (${quote(event.id)}, ${quote(event.name)}, ${quote(event.category)}, ${quote(event.gender)}, ${quote(event.type || "track")}, ${numberArray(event.points, defaultPoints)}, ${event.registrationOpen !== false}) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category, gender = EXCLUDED.gender, event_type = EXCLUDED.event_type, points = EXCLUDED.points, registration_open = EXCLUDED.registration_open;`;
   });
   for (const student of students.values()) {
     const pictureUrl = /^https?:\/\//i.test(String(student.picture || "")) ? student.picture : null;
@@ -1355,24 +1372,30 @@ app.get("/api/entries/:eid", auth("judge"), (q, s) => {
 app.post("/api/judge/submit/:eid", auth("judge"), async (q, s) => {
   const eventId = q.params.eid;
   if (db.results[eventId]) return bad(s, "This event is already published; ask an admin to unpublish it before resubmitting");
-  if (!db.events.some((event) => event.id === eventId)) return bad(s, "Event not found");
+  const event = db.events.find((item) => item.id === eventId);
+  if (!event) return bad(s, "Event not found");
+  const isGamesEvent = event.category === "Games";
   const entries = getJudgeEntries(eventId);
   if (!entries.length) return bad(s, "No registered participants or teams are available to rank");
   const positions = q.body?.positions;
-  if (!Array.isArray(positions) || positions.length !== entries.length) {
+  if (!Array.isArray(positions) || (isGamesEvent ? positions.length < 2 || positions.length > Math.min(4, entries.length) : positions.length !== entries.length)) {
     return bad(s, "Assign a position to every participant or team before submitting");
   }
 
   const allowed = new Set(entries.map((entry) => entry.reg));
   const regs = positions.map((item) => String(item?.reg || "").trim());
   const ranks = positions.map((item) => Number(item?.position));
+  const sequentialGameRanks = [...ranks].sort((a, b) => a - b).every((rank, index) => rank === index + 1);
   if (
     regs.some((reg) => !allowed.has(reg)) ||
-    new Set(regs).size !== entries.length ||
-    ranks.some((rank) => !Number.isInteger(rank) || rank < 1 || rank > entries.length) ||
-    new Set(ranks).size !== entries.length
+    new Set(regs).size !== positions.length ||
+    ranks.some((rank) => !Number.isInteger(rank) || rank < 1 || rank > (isGamesEvent ? Math.min(4, entries.length) : entries.length)) ||
+    new Set(ranks).size !== positions.length ||
+    (isGamesEvent && (!ranks.includes(1) || !ranks.includes(2) || !sequentialGameRanks))
   ) {
-    return bad(s, "Positions must rank every listed entry once, from 1 to the number of participants");
+    return bad(s, isGamesEvent
+      ? "Games results require unique 1st and 2nd; optional 3rd and 4th places must be consecutive"
+      : "Positions must rank every listed entry once, from 1 to the number of participants");
   }
 
   db.judgeSubmissions[eventId] = {
@@ -1759,7 +1782,7 @@ app.post("/api/admin/event", auth("admin"), async (q, s) => {
   const eventPoints =
     Array.isArray(points) && points.length >= 3
       ? points.map(Number)
-      : db.config.categoryPoints?.[validCategory] || (validCategory === "Games" ? [10, 5, 2] : [5, 3, 1]);
+      : db.config.categoryPoints?.[validCategory] || (validCategory === "Games" ? [10, 6, 0] : [5, 3, 1]);
 
   const existingIndex = db.events.findIndex((e) => e.id === standard.id);
   const eventId = standard.id;
@@ -1781,6 +1804,19 @@ app.post("/api/admin/event", auth("admin"), async (q, s) => {
 
   await save();
   s.json({ ok: true, event: eventObj, events: db.events });
+});
+
+app.post("/api/admin/event/:id/registration", auth("admin"), async (q, s) => {
+  const event = db.events.find((item) => item.id === q.params.id);
+  if (!event) return s.status(404).json({ error: "Event not found" });
+  if (typeof q.body?.open !== "boolean") return bad(s, "Registration status must be open or closed");
+  event.registrationOpen = q.body.open;
+  try {
+    await save();
+  } catch (error) {
+    return s.status(503).json({ error: error.message || "Could not save event registration status" });
+  }
+  s.json({ ok: true, event });
 });
 
 // Helper for event deletion
@@ -1812,7 +1848,7 @@ app.post("/api/admin/reset-events", auth("admin"), async (q, s) => {
   db.events = JSON.parse(JSON.stringify(defaultEvents));
   db.config.categoryPoints = {
     Athletics: [5, 3, 1],
-    Games: [10, 5, 2],
+    Games: [10, 6, 0],
   };
   db.config.defaultPoints = [5, 3, 1];
   if (q.body?.clearRegistrations) {
@@ -1871,7 +1907,7 @@ app.post("/api/publish/:eid", auth("admin"), async (q, s) => {
     places = db.judgeSubmissions[eid].positions
       .slice()
       .sort((a, b) => a.position - b.position)
-      .slice(0, 3)
+      .slice(0, event.category === "Games" ? 4 : 3)
       .map((item) => item.reg);
   }
   if (!places.length) {
@@ -1900,7 +1936,7 @@ app.post("/api/publish/:eid", auth("admin"), async (q, s) => {
   if (places.some((place) => !validEntries.has(norm(place)))) {
     return bad(s, "Choose registered participants or teams for the podium");
   }
-  places = places.slice(0, 3);
+  places = places.slice(0, event.category === "Games" ? 4 : 3);
 
   db.results[eid] = { places, at: new Date().toISOString() };
   await save();

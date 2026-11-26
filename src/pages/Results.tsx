@@ -9,7 +9,7 @@ export default function Results() {
   const [categoryFilter, setCategoryFilter] = useState<"All" | "Athletics" | "Games">("All");
   const [genderFilter, setGenderFilter] = useState<"All" | "Boys" | "Girls">("All");
 
-  const medal = ["🥇 1st", "🥈 2nd", "🥉 3rd"];
+  const medal = ["1st", "2nd", "3rd", "4th"];
 
   const allEvents = (cfg?.events && cfg.events.length > 0) ? cfg.events : SPORTSITEM_EVENTS;
   const filteredEvents = allEvents.filter((e: any) => {
@@ -128,7 +128,7 @@ export default function Results() {
         {filteredEvents.map((e: any) => {
           const r = s.results[e.id];
           const teamEvent = e.category === "Games" || /relay/i.test(`${e.id} ${e.name}`);
-          const pts = e.points || (e.category === "Games" ? (cfg.categoryPoints?.Games || [10, 5, 2]) : (cfg.categoryPoints?.Athletics || [5, 3, 1]));
+          const pts = e.points || (e.category === "Games" ? (cfg.categoryPoints?.Games || [10, 6, 0]) : (cfg.categoryPoints?.Athletics || [5, 3, 1]));
 
           return (
             <div className="card" key={e.id} style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
@@ -139,7 +139,7 @@ export default function Results() {
                 </div>
                 <h3>{e.name}</h3>
                 <p className="muted" style={{ marginBottom: "12px" }}>
-                  Points: 1st ({pts[0]}), 2nd ({pts[1]}), 3rd ({pts[2]})
+                  Points: 1st ({pts[0]}), 2nd ({pts[1]}), 3rd ({pts[2]}){e.category === "Games" ? ", 4th (0)" : ""}
                 </p>
 
                 {r ? (
@@ -147,7 +147,7 @@ export default function Results() {
                     {r.places.map((p: any, i: number) => (
                       <div key={i} style={{ padding: "4px 0", fontSize: "0.88rem" }}>
                         <strong>{medal[i]}</strong> {teamEvent ? `${p.house} Team` : p.name}{" "}
-                        <span className="muted">· {p.house} (+{pts[i]} pts)</span>
+                        <span className="muted">- {p.house} (+{Number(pts[i] || 0)} pts)</span>
                       </div>
                     ))}
                   </div>

@@ -18,6 +18,8 @@ function Board({ pin, judge }: { pin: string; judge: string }) {
   const [submission, setSubmission] = useState<any>(null);
   const [published, setPublished] = useState(false);
   const [msg, setMsg] = useState("");
+  const selectedEvent = (cfg?.events || []).find((event: any) => event.id === eid);
+  const isGamesEvent = selectedEvent?.category === "Games";
 
   const load = async () => {
     if (!eid) {
@@ -45,10 +47,28 @@ function Board({ pin, judge }: { pin: string; judge: string }) {
 
   const submitResults = async () => {
     if (published) return;
-    const ranked = rows.map((row) => ({ reg: row.reg, position: Number(positions[row.reg]) }));
+    const ranked = rows
+      .filter((row) => !isGamesEvent || Boolean(positions[row.reg]))
+      .map((row) => ({ reg: row.reg, position: Number(positions[row.reg]) }));
     const ranks = ranked.map((entry) => entry.position);
-    if (!rows.length || ranked.some((entry) => !Number.isInteger(entry.position) || entry.position < 1 || entry.position > rows.length) || new Set(ranks).size !== rows.length) {
-      setMsg("Assign a unique position to every participant or team before submitting.");
+    const nonSequentialGamesRanking = [...ranks].sort((a, b) => a - b).some((rank, index) => rank !== index + 1);
+    const invalidGamesRanking = isGamesEvent && (
+      ranked.length < 2 ||
+      !ranks.includes(1) ||
+      !ranks.includes(2) ||
+      ranked.some((entry) => !Number.isInteger(entry.position) || entry.position < 1 || entry.position > Math.min(4, rows.length)) ||
+      new Set(ranks).size !== ranked.length ||
+      nonSequentialGamesRanking
+    );
+    const invalidOtherRanking = !isGamesEvent && (
+      !rows.length ||
+      ranked.some((entry) => !Number.isInteger(entry.position) || entry.position < 1 || entry.position > rows.length) ||
+      new Set(ranks).size !== rows.length
+    );
+    if (invalidGamesRanking || invalidOtherRanking) {
+      setMsg(isGamesEvent
+        ? "Select 1st and 2nd. 3rd and 4th are optional, but must be assigned in order; they receive no points."
+        : "Assign a unique position to every participant or team before submitting.");
       return;
     }
     try {
@@ -90,6 +110,7 @@ function Board({ pin, judge }: { pin: string; judge: string }) {
         </p>
       )}
       {published && <p className="muted" role="status">Results are published. Ask an admin to unpublish this event before changing placings.</p>}
+      {isGamesEvent && <p className="muted">Games: 1st and 2nd are required. 3rd and 4th are optional, in order, and receive no points.</p>}
 
       {rows.map((r) => (
         <div className="row" key={r.reg}>
@@ -108,10 +129,10 @@ function Board({ pin, judge }: { pin: string; judge: string }) {
               aria-label={"Position for " + r.name}
             >
               <option value="">Select position…</option>
-              {Array.from({ length: rows.length }, (_, index) => index + 1).map((position) => {
+              {Array.from({ length: isGamesEvent ? Math.min(4, rows.length) : rows.length }, (_, index) => index + 1).map((position) => {
                 const takenByAnother = Object.entries(positions).some(([reg, value]) => reg !== r.reg && Number(value) === position);
                 return (
-                  <option key={position} value={position} disabled={takenByAnother}>
+                  <option key={position} value={position} disabled={takenByAnother || (isGamesEvent && position === 4 && !Object.values(positions).some((value) => Number(value) === 3))}>
                     {ordinal(position)}
                   </option>
                 );

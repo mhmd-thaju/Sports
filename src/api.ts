@@ -164,6 +164,9 @@ function getLocalJudgeEntries(db: TournamentDb, eventId: string) {
         name: registration.name,
         house: registration.house,
       }])).values()];
+  if (rosterEvents && participants.length === 0) {
+    return db.config.houses.map((house) => ({ reg: house, name: `${house} Team`, house, members: 0 }));
+  }
   return participants;
 }
 
@@ -357,7 +360,7 @@ function handleLocalDbFallback(
     const eventPoints =
       Array.isArray(points) && points.length >= 3
         ? points.map(Number)
-        : db.config.categoryPoints?.[validCategory] || (validCategory === "Games" ? [10, 5, 2] : [5, 3, 1]);
+        : db.config.categoryPoints?.[validCategory] || (validCategory === "Games" ? [10, 6, 0] : [5, 3, 1]);
 
     const existingIndex = db.events.findIndex((e) => e.id === standard.id);
     const eventId = standard.id;
@@ -378,6 +381,16 @@ function handleLocalDbFallback(
     }
     saveLocalDb(db);
     return { ok: true, event: eventObj, events: db.events };
+  }
+
+  if (path.startsWith("/admin/event/") && path.endsWith("/registration")) {
+    const eventId = path.slice("/admin/event/".length, -"/registration".length);
+    const event = db.events.find((item) => item.id === eventId);
+    if (!event) throw new Error("Event not found");
+    if (typeof body?.open !== "boolean") throw new Error("Registration status must be open or closed");
+    event.registrationOpen = body.open;
+    saveLocalDb(db);
+    return { ok: true, event };
   }
 
   // POST /api/admin/points
@@ -481,7 +494,7 @@ function handleLocalDbFallback(
   // POST /api/admin/reset-events
   if (path === "/admin/reset-events") {
     db.events = JSON.parse(JSON.stringify(SPORTSITEM_EVENTS));
-    db.config.categoryPoints = { Athletics: [5, 3, 1], Games: [10, 5, 2] };
+    db.config.categoryPoints = { Athletics: [5, 3, 1], Games: [10, 6, 0] };
     db.config.defaultPoints = [5, 3, 1];
     if (body?.clearRegistrations) {
       db.regs = [];
@@ -503,7 +516,7 @@ function handleLocalDbFallback(
       places = (db.judgeSubmissions[eid]?.positions || [])
         .slice()
         .sort((a, b) => a.position - b.position)
-        .slice(0, 3)
+        .slice(0, event.category === "Games" ? 4 : 3)
         .map((item) => item.reg);
     }
     if (!places.length) throw new Error("No judge submission or podium positions are available to publish");
@@ -519,7 +532,7 @@ function handleLocalDbFallback(
     const validEntries = getLocalJudgeEntries(db, eid);
     const entryIds = new Set(validEntries.map((entry) => entry.reg.toUpperCase()));
     if (places.some((place) => !entryIds.has(place.toUpperCase()))) throw new Error("Choose registered participants or teams for the podium");
-    places = places.slice(0, 3);
+    places = places.slice(0, event.category === "Games" ? 4 : 3);
     db.results[eid] = { places, at: new Date().toISOString() };
     saveLocalDb(db);
     return { ok: true, places };
@@ -570,21 +583,27 @@ function handleLocalDbFallback(
     const eventId = path.replace("/judge/submit/", "");
     if (db.results[eventId]) throw new Error("This event is already published; ask an admin to unpublish it before resubmitting");
     const entries = getLocalJudgeEntries(db, eventId);
+    const event = db.events.find((item) => item.id === eventId);
+    const isGamesEvent = event?.category === "Games";
     if (!entries.length) throw new Error("No registered participants or teams are available to rank");
     const positions = body?.positions;
-    if (!Array.isArray(positions) || positions.length !== entries.length) {
+    if (!Array.isArray(positions) || (isGamesEvent ? positions.length < 2 || positions.length > Math.min(4, entries.length) : positions.length !== entries.length)) {
       throw new Error("Assign a position to every participant or team before submitting");
     }
     const allowed = new Set(entries.map((entry) => entry.reg));
     const regs = positions.map((item: any) => String(item.reg || "").trim());
     const ranks = positions.map((item: any) => Number(item.position));
+    const sequentialGameRanks = [...ranks].sort((a, b) => a - b).every((rank, index) => rank === index + 1);
     if (
       regs.some((reg: string) => !allowed.has(reg)) ||
-      new Set(regs).size !== entries.length ||
-      ranks.some((rank: number) => !Number.isInteger(rank) || rank < 1 || rank > entries.length) ||
-      new Set(ranks).size !== entries.length
+      new Set(regs).size !== positions.length ||
+      ranks.some((rank: number) => !Number.isInteger(rank) || rank < 1 || rank > (isGamesEvent ? Math.min(4, entries.length) : entries.length)) ||
+      new Set(ranks).size !== positions.length ||
+      (isGamesEvent && (!ranks.includes(1) || !ranks.includes(2) || !sequentialGameRanks))
     ) {
-      throw new Error("Positions must rank every listed entry once, from 1 to the number of participants");
+      throw new Error(isGamesEvent
+        ? "Games results require unique 1st and 2nd; optional 3rd and 4th places must be consecutive"
+        : "Positions must rank every listed entry once, from 1 to the number of participants");
     }
     const submission = {
       judge: String(judge || "judge"),

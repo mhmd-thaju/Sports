@@ -5,6 +5,8 @@ import PinGate from "../components/PinGate";
 import BulkRegistrationImport from "../components/BulkRegistrationImport";
 import { triggerFileDownload, SPORTSITEM_EVENTS, isRelayEvent } from "../localDb";
 
+const placeLabels = ["1st", "2nd", "3rd", "4th"];
+
 interface EventItem {
   id: string;
   name: string;
@@ -12,6 +14,7 @@ interface EventItem {
   gender: "Boys" | "Girls";
   type: string;
   points?: number[];
+  registrationOpen?: boolean;
 }
 
 function Panel({ pin }: { pin: string }) {
@@ -126,15 +129,15 @@ function Panel({ pin }: { pin: string }) {
   if (!cfg || !s) return <p className="muted">Loading tournament data…</p>;
 
   // Initialize points form from live config if not edited
-  // Faithful to Sportsitem.txt defaults: Athletics [5, 3, 1], Games [10, 5, 2]
-  const currentCategoryPoints = cfg.categoryPoints || { Athletics: [5, 3, 1], Games: [10, 5, 2] };
+  // Faithful to Sportsitem.txt defaults: Athletics [5, 3, 1], Games [10, 6, 0]
+  const currentCategoryPoints = cfg.categoryPoints || { Athletics: [5, 3, 1], Games: [10, 6, 0] };
   const pointsState = pointsForm || {
     ath1: currentCategoryPoints.Athletics?.[0] ?? 5,
     ath2: currentCategoryPoints.Athletics?.[1] ?? 3,
     ath3: currentCategoryPoints.Athletics?.[2] ?? 1,
     game1: currentCategoryPoints.Games?.[0] ?? 10,
-    game2: currentCategoryPoints.Games?.[1] ?? 5,
-    game3: currentCategoryPoints.Games?.[2] ?? 2,
+    game2: currentCategoryPoints.Games?.[1] ?? 6,
+    game3: currentCategoryPoints.Games?.[2] ?? 0,
   };
 
   // Initialize teams list from live config if not edited
@@ -165,6 +168,16 @@ function Panel({ pin }: { pin: string }) {
     api("/publish/" + eid, {}, pin)
       .then(() => flash("Judge results published successfully ✓"))
       .catch((e) => flash(e.message, true));
+  };
+
+  const toggleRegistration = async (event: EventItem) => {
+    const open = event.registrationOpen === false;
+    try {
+      await api(`/admin/event/${event.id}/registration`, { open }, pin);
+      flash(`Registration ${open ? "opened" : "closed"} for ${event.name}.`);
+    } catch (e: any) {
+      flash(e.message, true);
+    }
   };
 
   const unpublishEvent = (eid: string) => {
@@ -938,6 +951,7 @@ function Panel({ pin }: { pin: string }) {
                   <div style={{ flex: "1 1 240px" }}>
                     <div className="flex-gap" style={{ marginBottom: "4px" }}>
                       <strong>{e.name}</strong>
+                      {e.registrationOpen === false && <span className="badge" style={{ background: "#fee2e2", color: "#991b1b" }}>Registration closed</span>}
                       <span className="badge navy">{e.type}</span>
                       <span className="badge orange">
                         {pts[0]}-{pts[1]}-{pts[2]} pts
@@ -947,15 +961,20 @@ function Panel({ pin }: { pin: string }) {
                     <span className="muted">
                       {count} {teamEvent ? (count === 1 ? "team" : "teams") : (count === 1 ? "participant" : "participants")} registered
                     </span>
+                    {teamEvent && count === 0 && !result && (
+                      <div className="muted" style={{ marginTop: "4px" }}>
+                        No participant registrations are needed to publish team results; use the configured house names.
+                      </div>
+                    )}
 
                     {submission && !result && (
                       <div className="card" style={{ marginTop: "8px", padding: "8px 12px", background: "#f0fdf4" }}>
                         <strong className="ok">Judge results ready to publish</strong>
                         <div className="muted">Submitted by {submission.judge} · {submission.positions.length} {teamEvent ? "teams" : "participants"} ranked</div>
-                        {submission.positions.slice(0, 3).map((place: any, index: number) => {
+                        {submission.positions.slice(0, e.category === "Games" ? 4 : 3).map((place: any, index: number) => {
                           const participant = eventRegs.find((registration) => registration.reg === place.reg);
                           const label = teamEvent ? `${place.reg} Team` : participant?.name || place.reg;
-                          return <div key={place.reg}>{["🥇 1st", "🥈 2nd", "🥉 3rd"][index]}: <strong>{label}</strong></div>;
+                          return <div key={place.reg}>{placeLabels[index]}: <strong>{label}</strong></div>;
                         })}
                       </div>
                     )}
@@ -966,7 +985,7 @@ function Panel({ pin }: { pin: string }) {
                         <div style={{ fontWeight: 600, color: "var(--navy)" }}>Podium Winners:</div>
                         {result.places.map((p: any, idx: number) => (
                           <div key={idx}>
-                            {["🥇 1st", "🥈 2nd", "🥉 3rd"][idx]}: <strong>{teamEvent ? `${p.house} Team` : `${p.name} (${p.house})`}</strong> — <span className="muted">+{pts[idx]} pts</span>
+                            {placeLabels[idx]}: <strong>{teamEvent ? `${p.house} Team` : `${p.name} (${p.house})`}</strong> - <span className="muted">+{Number(pts[idx] || 0)} pts</span>
                           </div>
                         ))}
                       </div>
@@ -983,7 +1002,7 @@ function Panel({ pin }: { pin: string }) {
                       ) : (
                         <>
                           <input
-                            placeholder={`1st, 2nd, 3rd (${teamEvent ? "House names" : "Reg Nos"})`}
+                            placeholder={`1st, 2nd, 3rd${e.category === "Games" ? ", 4th" : ""} (${teamEvent ? "House names" : "Reg Nos"})`}
                             value={manual[e.id] || ""}
                             onChange={(x) => setManual({ ...manual, [e.id]: x.target.value })}
                             style={{ width: "190px" }}
@@ -1006,6 +1025,9 @@ function Panel({ pin }: { pin: string }) {
                     <button className="btn sm ghost" onClick={() => openEditEvent(e)} title="Edit event and points">
                       ✏️ Edit
                     </button>
+                    <button className={`btn sm ${e.registrationOpen === false ? "success" : "ghost"}`} onClick={() => void toggleRegistration(e)}>
+                      {e.registrationOpen === false ? "Open Registration" : "Close Registration"}
+                    </button>
                     <button className="btn sm danger" onClick={() => deleteEvent(e.id, e.name)} title="Delete event">
                       🗑️
                     </button>
@@ -1022,7 +1044,7 @@ function Panel({ pin }: { pin: string }) {
         <div style={{ maxWidth: "600px" }}>
           <h3>Predefined Points Configuration</h3>
           <p className="muted" style={{ marginBottom: "20px" }}>
-            Assign default points awarded for 1st, 2nd, and 3rd place across <strong>Athletics</strong> (5, 3, 1) and <strong>Games</strong> (10, 5, 2). Individual events can also override these defaults. Changes are automatically saved to the server database.
+            Games award 10 points for 1st and 6 for 2nd. 3rd and 4th place receive 0. Athletics points remain 5, 3, and 1.
           </p>
 
           <div className="card" style={{ background: "#f8fafc" }}>
@@ -1265,7 +1287,7 @@ function Panel({ pin }: { pin: string }) {
                       houseEntrants.size >= (relay ? 4 : 3);
                     const eventPublished = Boolean(s.results[event.id]);
                     const disabled = !selected && (
-                      alreadyRegistered || individualLimitReached || relayLimitReached || houseLimitReached || eventPublished
+                      alreadyRegistered || individualLimitReached || relayLimitReached || houseLimitReached || eventPublished || event.registrationOpen === false
                     );
                     return (
                       <button
@@ -1284,6 +1306,7 @@ function Panel({ pin }: { pin: string }) {
                           alreadyRegistered ? "Already registered for this event" :
                           houseLimitReached ? "House limit reached for this Athletics event" :
                           eventPublished ? "Unpublish this event before changing registrations" :
+                          event.registrationOpen === false ? "Registration is closed for this event" :
                           individualLimitReached || relayLimitReached ? "Participant event limit reached" : undefined
                         }
                       >
@@ -1462,7 +1485,7 @@ function Panel({ pin }: { pin: string }) {
           <div className="card" style={{ borderColor: "#fed7aa" }}>
             <h4 style={{ color: "#9a3412" }}>🔄 Reset Items to Sportsitem.txt</h4>
             <p className="muted" style={{ marginTop: "4px", marginBottom: "12px" }}>
-              Restores the default 30 events (5 Boys Games, 5 Girls Games, 10 Boys Athletics, 10 Girls Athletics) and points scheme (Athletics: 5/3/1, Games: 10/5/2) as defined in <code>Sportsitem.txt</code>.
+              Restores the default 30 events (5 Boys Games, 5 Girls Games, 10 Boys Athletics, 10 Girls Athletics) and points scheme (Athletics: 5/3/1, Games: 10/6/0 (3rd/4th: 0)) as defined in <code>Sportsitem.txt</code>.
             </p>
             <button className="btn sm ghost" onClick={handleResetSportsitem} style={{ borderColor: "var(--orange)", color: "var(--orange)" }}>
               Restore from Sportsitem.txt

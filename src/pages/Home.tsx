@@ -142,10 +142,13 @@ function App() {
   const cfg = usePoll("/config", 5000);
   const galleryData = usePoll<{ photos: any[] }>("/gallery", 5000);
   const scheduleItems = Array.isArray(cfg?.schedule) ? cfg.schedule : [];
+  const [activeDay, setActiveDay] = useState("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [utilityOpen, setUtilityOpen] = useState(false);
   const [winnerFilter, setWinnerFilter] = useState("All");
   const [selectedPhoto, setSelectedPhoto] = useState<number | null>(null);
+  const scheduleDays = [...new Set(scheduleItems.map((item: any) => String(item.day || "").trim()).filter(Boolean))];
+  const selectedDay = scheduleDays.includes(activeDay) ? activeDay : scheduleDays[0] || "";
   const recentPhotos = sortGalleryPhotos(galleryData?.photos || cfg?.gallery).slice(0, 3);
   const latestPhotoCards: GalleryCard[] = recentPhotos.map((photo, index) => ({
     id: photo.id || photo.src,
@@ -427,7 +430,7 @@ function App() {
                 Games & Items.
               </h2>
               <p className="mt-4 max-w-xl text-base leading-7 text-[#59615e]">
-                All <strong>30 officially recognized events</strong> across Games (10, 5, 2 pts) and Athletics (5, 3, 1 pts) partitioned into Boys and Girls divisions.
+                All <strong>30 officially recognized events</strong> across Games (10, 6, 0 pts) and Athletics (5, 3, 1 pts) partitioned into Boys and Girls divisions.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -482,7 +485,7 @@ function App() {
           {/* Events Grid */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {filteredEventsList.map((e: any) => {
-              const pts = e.points || (e.category === "Games" ? [10, 5, 2] : [5, 3, 1]);
+              const pts = e.points || (e.category === "Games" ? [10, 6, 0] : [5, 3, 1]);
               const count = s?.counts?.[e.id] || 0;
               const isGame = e.category === "Games";
               const backgroundImage = eventBackgrounds[e.name] || eventBackgrounds.Athletics;
@@ -523,6 +526,7 @@ function App() {
                         <span>1st: {pts[0]}</span>
                         <span>2nd: {pts[1]}</span>
                         <span>3rd: {pts[2]}</span>
+                        {e.category === "Games" && <span>4th: 0</span>}
                       </div>
                     </div>
                   </div>
@@ -546,40 +550,52 @@ function App() {
       </section>
 
       {scheduleItems.length > 0 && (
-        <section id="schedule" className="bg-white py-20 md:py-28">
+        <section id="schedule" className="bg-[#e9e6df] py-20 md:py-28">
           <div className="mx-auto max-w-[1440px] px-5 md:px-10">
-            <div className="mb-10">
-              <p className="eyebrow">Plan your meet</p>
-              <h2 className="section-title mt-5">Event schedule.</h2>
-              <p className="mt-4 max-w-xl text-sm leading-6 text-[#626c79]">
-                Check event times, divisions, and locations for the sports meet.
-              </p>
-            </div>
-            <div className="overflow-x-auto rounded-2xl border border-[#002656]/10">
-              <table className="w-full min-w-[760px] border-collapse text-left">
-                <thead className="bg-[#002656] text-[10px] font-bold uppercase tracking-[.16em] text-white/70">
-                  <tr>
-                    <th className="px-5 py-4">Day</th>
-                    <th className="px-5 py-4">Time</th>
-                    <th className="px-5 py-4">Event</th>
-                    <th className="px-5 py-4">Category / Division</th>
-                    <th className="px-5 py-4">Location</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-[#002656]/10">
-                  {scheduleItems.map((item: any, index: number) => (
-                    <tr key={`${item.day}-${item.time}-${item.event}-${index}`} className="text-sm text-[#263948]">
-                      <td className="whitespace-nowrap px-5 py-4 font-bold">{item.day}</td>
-                      <td className="whitespace-nowrap px-5 py-4">{item.time}</td>
-                      <td className="px-5 py-4 font-semibold">{item.event}</td>
-                      <td className="px-5 py-4 text-[#626c79]">
-                        {[item.category, item.gender].filter(Boolean).join(" · ") || "—"}
-                      </td>
-                      <td className="px-5 py-4">{item.location}</td>
-                    </tr>
+            <div className="grid gap-12 lg:grid-cols-[.7fr_1.3fr] lg:gap-14">
+              <div>
+                <p className="eyebrow">Up next</p>
+                <h2 className="section-title mt-5">
+                  Today's
+                  <br />
+                  line-up.
+                </h2>
+                <p className="mt-7 max-w-sm leading-7 text-[#59615e]">
+                  Follow every heat, match, and medal moment from {selectedDay}.
+                </p>
+                <div className="mt-10 inline-flex flex-wrap gap-1 rounded-full bg-[#d8d4ca] p-1.5">
+                  {scheduleDays.map((day) => (
+                    <button
+                      key={day}
+                      onClick={() => setActiveDay(day)}
+                      aria-pressed={day === selectedDay}
+                      className={`rounded-full px-5 py-2 text-xs font-black uppercase tracking-wider transition ${day === selectedDay ? "bg-[#002656] text-white" : "text-[#6b706e] hover:text-[#002656]"}`}
+                    >
+                      {day}
+                    </button>
                   ))}
-                </tbody>
-              </table>
+                </div>
+              </div>
+              <div className="border-t-2 border-[#002656]">
+                {scheduleItems.filter((item: any) => item.day === selectedDay).map((item: any, index: number) => (
+                  <div
+                    key={`${item.day}-${item.time}-${item.event}-${index}`}
+                    className="group grid grid-cols-[60px_1fr] gap-4 border-b border-[#cbc8bf] py-6 transition hover:px-4 md:grid-cols-[90px_1fr_160px] md:items-center"
+                  >
+                    <span className="font-display text-xl text-[#f47b00]">{item.time}</span>
+                    <div>
+                      <p className="text-base font-extrabold md:text-lg">{item.event}</p>
+                      <p className="mt-1 flex items-center gap-1.5 text-xs text-[#737875]">
+                        <Icon name="map" size={13} />
+                        {item.location}
+                      </p>
+                    </div>
+                    <span className="col-start-2 w-fit rounded-full border border-[#c6c4bb] px-3 py-1 text-[10px] font-bold uppercase tracking-[.15em] text-[#676d69] md:col-start-auto">
+                      {[item.category, item.gender].filter(Boolean).join(" / ")}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </section>

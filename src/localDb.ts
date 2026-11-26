@@ -8,6 +8,7 @@ export interface EventItem {
   gender: "Boys" | "Girls" | "Mixed";
   type: string;
   points: number[];
+  registrationOpen?: boolean;
 }
 
 export interface StudentRegistration {
@@ -145,19 +146,19 @@ export const SPORTSITEM_EVENTS: EventItem[] = [
   { id: "ath-javelin-girls", name: "Javelin", category: "Athletics", gender: "Girls", type: "field", points: [5, 3, 1] },
   { id: "ath-4x100mrelay-girls", name: "4 x 100m Relay", category: "Athletics", gender: "Girls", type: "team", points: [5, 3, 1] },
 
-  // Games - Boys (Points: 10, 5, 2)
-  { id: "game-football-boys", name: "Football", category: "Games", gender: "Boys", type: "team", points: [10, 5, 2] },
-  { id: "game-cricket-boys", name: "Cricket", category: "Games", gender: "Boys", type: "team", points: [10, 5, 2] },
-  { id: "game-volleyball-boys", name: "Volleyball", category: "Games", gender: "Boys", type: "team", points: [10, 5, 2] },
-  { id: "game-badminton-boys", name: "Badminton", category: "Games", gender: "Boys", type: "court", points: [10, 5, 2] },
-  { id: "game-chess-boys", name: "Chess", category: "Games", gender: "Boys", type: "court", points: [10, 5, 2] },
+  // Games - Boys (Points: 10, 6, 0)
+  { id: "game-football-boys", name: "Football", category: "Games", gender: "Boys", type: "team", points: [10, 6, 0] },
+  { id: "game-cricket-boys", name: "Cricket", category: "Games", gender: "Boys", type: "team", points: [10, 6, 0] },
+  { id: "game-volleyball-boys", name: "Volleyball", category: "Games", gender: "Boys", type: "team", points: [10, 6, 0] },
+  { id: "game-badminton-boys", name: "Badminton", category: "Games", gender: "Boys", type: "court", points: [10, 6, 0] },
+  { id: "game-chess-boys", name: "Chess", category: "Games", gender: "Boys", type: "court", points: [10, 6, 0] },
 
-  // Games - Girls (Points: 10, 5, 2)
-  { id: "game-throwball-girls", name: "Throwball", category: "Games", gender: "Girls", type: "team", points: [10, 5, 2] },
-  { id: "game-badminton-girls", name: "Badminton", category: "Games", gender: "Girls", type: "court", points: [10, 5, 2] },
-  { id: "game-minidodgeball-girls", name: "Mini Dodgeball", category: "Games", gender: "Girls", type: "team", points: [10, 5, 2] },
-  { id: "game-khokho-girls", name: "Kho-Kho", category: "Games", gender: "Girls", type: "team", points: [10, 5, 2] },
-  { id: "game-chess-girls", name: "Chess", category: "Games", gender: "Girls", type: "court", points: [10, 5, 2] },
+  // Games - Girls (Points: 10, 6, 0)
+  { id: "game-throwball-girls", name: "Throwball", category: "Games", gender: "Girls", type: "team", points: [10, 6, 0] },
+  { id: "game-badminton-girls", name: "Badminton", category: "Games", gender: "Girls", type: "court", points: [10, 6, 0] },
+  { id: "game-minidodgeball-girls", name: "Mini Dodgeball", category: "Games", gender: "Girls", type: "team", points: [10, 6, 0] },
+  { id: "game-khokho-girls", name: "Kho-Kho", category: "Games", gender: "Girls", type: "team", points: [10, 6, 0] },
+  { id: "game-chess-girls", name: "Chess", category: "Games", gender: "Girls", type: "court", points: [10, 6, 0] },
 ];
 
 export function isRelayEvent(event: Pick<EventItem, "id" | "name">): boolean {
@@ -205,6 +206,9 @@ export function validateRegistrationRequest(
   const selectedEvents = eventIds.map((eventId) => db.events.find((event) => event.id === eventId));
   if (selectedEvents.some((event) => !event || (event.gender !== "Mixed" && event.gender !== gender))) {
     return { error: "Choose valid events for the selected division" };
+  }
+  if (selectedEvents.some((event) => event?.registrationOpen === false)) {
+    return { error: "Registration is closed for one or more selected events" };
   }
   if (eventIds.some((eventId) => db.results[eventId])) {
     return { error: "An event is already published; ask an admin to unpublish it before changing registrations" };
@@ -265,7 +269,7 @@ export function getInitialDb(): TournamentDb {
       featuredWinners: [],
       categoryPoints: {
         Athletics: [5, 3, 1],
-        Games: [10, 5, 2],
+        Games: [10, 6, 0],
       },
       defaultPoints: [5, 3, 1],
     },
@@ -300,8 +304,13 @@ export function loadLocalDb(): TournamentDb {
     parsed.config.featuredWinners = Array.isArray(parsed.config.featuredWinners) ? parsed.config.featuredWinners : [];
     parsed.judgeSubmissions = parsed.judgeSubmissions && typeof parsed.judgeSubmissions === "object" ? parsed.judgeSubmissions : {};
 
-    // Keep only the 30 standard items from Sportsitem.txt.
     let updated = false;
+    parsed.config.categoryPoints = parsed.config.categoryPoints || { Athletics: [5, 3, 1], Games: [10, 6, 0] };
+    if (JSON.stringify(parsed.config.categoryPoints.Games) === JSON.stringify([10, 5, 2])) {
+      parsed.config.categoryPoints = { ...parsed.config.categoryPoints, Games: [10, 6, 0] };
+      updated = true;
+    }
+    // Keep only the 30 standard items from Sportsitem.txt.
     if (!Array.isArray(parsed.auditLogs)) {
       parsed.auditLogs = [];
       updated = true;
@@ -316,9 +325,12 @@ export function loadLocalDb(): TournamentDb {
       const canonical = {
         ...standard,
         type: stored.type || standard.type,
-        points: Array.isArray(stored.points) && stored.points.length === 3
-          ? stored.points.map((point: number, index: number) => standard.category === "Games" && index === 1 && Number(point) === 6 ? 5 : Number(point))
-          : standard.points,
+        registrationOpen: stored.registrationOpen !== false,
+        points: standard.category === "Games" && JSON.stringify(stored.points) === JSON.stringify([10, 5, 2])
+          ? [10, 6, 0]
+          : Array.isArray(stored.points) && stored.points.length === 3
+            ? stored.points.map(Number)
+            : standard.points,
       };
       if (
         stored.name !== canonical.name ||

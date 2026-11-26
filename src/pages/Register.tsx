@@ -196,9 +196,9 @@ export default function Register() {
                   type="button"
                   key={event.id}
                   className={"chip" + (selected ? " on" : "")}
-                  disabled={limitReached}
+                  disabled={limitReached || (!selected && event.registrationOpen === false)}
                   onClick={() => toggleEvent(event.id)}
-                  title={limitReached ? "Athletics limit reached" : undefined}
+                  title={event.registrationOpen === false ? "Registration is closed for this event" : limitReached ? "Athletics limit reached" : undefined}
                 >
                   {event.name}<small>{event.category}</small>
                 </button>

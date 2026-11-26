@@ -54,10 +54,11 @@ export default function BulkRegistrationImport({
     ? ([captainPassword, captainUsername] as const)
     : ([pin, undefined] as const);
   const endpoint = isCaptain ? "/captain/register-bulk" : "/admin/registration/bulk";
+  const openEvents = events.filter((event) => (event as RegistrationEvent & { registrationOpen?: boolean }).registrationOpen !== false);
 
   const downloadTemplate = async (format: "csv" | "xlsx") => {
     try {
-      await downloadRegistrationTemplate(events, !isCaptain, format, format === "csv");
+      await downloadRegistrationTemplate(openEvents, !isCaptain, format, format === "csv");
     } catch (reason) {
       setError(
         reason instanceof Error ? reason.message : "Could not download the registration template",
@@ -74,7 +75,7 @@ export default function BulkRegistrationImport({
     try {
       const parsed = await parseRegistrationWorkbook(file);
       const normalized = parsed.map((row) => ({ ...row, gender: normalizeGender(row.gender) }));
-      setRows(resolveRegistrationEvents(normalized, events));
+      setRows(resolveRegistrationEvents(normalized, openEvents));
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Could not read the spreadsheet");
     }
@@ -288,7 +289,7 @@ export default function BulkRegistrationImport({
                   <td>{row.gender}</td>
                   <td>
                     {(row.eventIds || [])
-                      .map((id) => events.find((event) => event.id === id)?.name || id)
+                      .map((id) => openEvents.find((event) => event.id === id)?.name || id)
                       .join(", ")}
                   </td>
                 </tr>

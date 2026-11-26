@@ -40,7 +40,7 @@ Without Supabase credentials, local development uses `server/data/db.json`. Set 
 |---|---|---|
 | Games & Athletics Categories | ✅ | Split into Games & Athletics; sub-divided into Boys & Girls |
 | Admin Event Entry (by category & gender) | ✅ | Enter, edit, and delete events separately for Boys and Girls |
-| Predefined Points Configuration | ✅ | Configure points for Athletics (5/3/1) & Games (10/5/2) + per-event points |
+| Predefined Points Configuration | ✅ | Configure points for Athletics (5/3/1) & Games (10/6/0, 3rd/4th: 0) + per-event points |
 | Admin Team / House Name Management | ✅ | Rename, add, or delete tournament teams in the local database |
 | Database Persistence | ✅ | Supabase is the configured runtime database; JSON remains available for local development |
 | Private Poster Studio | ✅ | Removed from public nav; gated with Admin PIN; launched via Admin desk |
@@ -69,7 +69,7 @@ Without Supabase credentials, local development uses `server/data/db.json`. Set 
   - Fixed the admin registration list polling to include its PIN and preserved server validation errors instead of silently retrying locally.
 - **2026-11-20 (Sportsitem.txt & Deletion Bug Fix)**:
   - Removed all obsolete items and replaced them with the exact 30 items specified in `Sportsitem.txt` (10 Games + 20 Athletics).
-  - Configured predefined points schemes: Athletics (5/3/1) and Games (10/5/2) as defined in `Sportsitem.txt`.
+  - Configured predefined points schemes: Athletics (5/3/1) and Games (10/6/0, 3rd/4th: 0) as defined in `Sportsitem.txt`.
   - Fixed event deletion bug where HTTP method mismatch prevented items from being removed.
   - Implemented real-time event bus (`sportsmeet:refresh`) in `usePoll` for immediate UI reflection of admin actions.
   - Added full dual-layer local database persistence (`server/data/db.json` & `localStorage`).

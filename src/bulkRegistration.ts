@@ -18,6 +18,7 @@ export interface RegistrationEvent {
   name: string;
   category: string;
   gender: string;
+  registrationOpen?: boolean;
 }
 
 export interface UploadedRegistrationPhoto {

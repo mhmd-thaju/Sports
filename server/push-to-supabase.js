@@ -41,7 +41,7 @@ const defaultHouses = [
   "GDA, BCA & Psychology",
 ];
 const defaultPoints = [5, 3, 1];
-const defaultCategoryPoints = { Athletics: [5, 3, 1], Games: [10, 5, 2] };
+const defaultCategoryPoints = { Athletics: [5, 3, 1], Games: [10, 6, 0] };
 const normalizeReg = (value) => String(value || "").trim().toUpperCase();
 const stableUuid = (value) => {
   const hash = createHash("sha256").update(value).digest("hex").slice(0, 32).split("");
@@ -94,6 +94,7 @@ export function createPayload(database) {
     gender: event.gender,
     event_type: event.type || "track",
     points: Array.isArray(event.points) ? event.points : defaultPoints,
+    registration_open: event.registrationOpen !== false,
   }));
   const studentRows = [...students.values()].map((student) => ({
     reg_no: student.regNo,

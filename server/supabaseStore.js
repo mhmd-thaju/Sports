@@ -202,6 +202,7 @@ export async function loadSupabaseDatabase() {
       gender: event.gender,
       type: event.event_type,
       points: event.points,
+      registrationOpen: event.registration_open !== false,
     })),
     regs,
     scores: scores.map((score) => ({

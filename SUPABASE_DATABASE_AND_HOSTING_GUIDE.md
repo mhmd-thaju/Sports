@@ -33,7 +33,7 @@ create table if not exists tournament_config (
   max_events_per_student integer not null default 3,
   categories jsonb not null default '["Athletics", "Games"]'::jsonb,
   genders jsonb not null default '["Boys", "Girls"]'::jsonb,
-  category_points jsonb not null default '{"Athletics":[5,3,1],"Games":[10,5,2]}'::jsonb,
+  category_points jsonb not null default '{"Athletics":[5,3,1],"Games":[10,6,0]}'::jsonb,
   default_points integer[] not null default '{5,3,1}',
   live_day text not null default 'Day 2',
   schedule jsonb not null default '[]'::jsonb,

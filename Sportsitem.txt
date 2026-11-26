@@ -1,5 +1,5 @@
 Games
-- Points - 10 , 5 , 2
+- Points - 10 , 6 , 0 (3rd and 4th place receive 0)
  Boys Game Items
  - Football
  - Cricket
