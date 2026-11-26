@@ -29,3 +29,6 @@ Thumbs.db
 # beside it.
 /.plugins/
 /.opencode-skills/
+
+.vercel
+.env*
