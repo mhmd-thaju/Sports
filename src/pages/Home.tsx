@@ -283,7 +283,7 @@ function App() {
             />
             <span className="hidden border-l border-[#002656]/15 pl-4 sm:block">
               <span className="block text-[10px] font-extrabold uppercase leading-tight tracking-[.18em] text-[#f47b00]">
-                Annual Sports Meet
+                Annual Sports & Games Meet 2026-27
               </span>
               <span className="mt-1 block text-xs font-semibold text-[#002656]/55">DCAS 2026</span>
             </span>
