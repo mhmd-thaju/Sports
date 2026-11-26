@@ -13,6 +13,18 @@ import {
 } from "./localDb";
 import { sortGalleryPhotos } from "./galleryUtils";
 
+let pendingApiRequests = 0;
+
+export function getPendingApiRequests() {
+  return pendingApiRequests;
+}
+
+function dispatchApiActivity(eventName: "sportsmeet:api:start" | "sportsmeet:api:end") {
+  if (typeof window === "undefined") return;
+  pendingApiRequests = Math.max(0, pendingApiRequests + (eventName.endsWith("start") ? 1 : -1));
+  window.dispatchEvent(new Event(eventName));
+}
+
 function requiresCloudinaryBackend(path: string) {
   return (
     path === "/captain/register" ||
@@ -79,6 +91,7 @@ export async function api(
   if (judge && path.startsWith("/captain/")) headers["x-captain"] = judge;
 
   let r: Response;
+  dispatchApiActivity("sportsmeet:api:start");
   try {
     r = await fetch("/api" + path, {
       method,
@@ -90,6 +103,8 @@ export async function api(
       throw new Error("This action requires the Sports Meet server to be available. Please try again.");
     }
     return handleLocalDbFallback(path, method, body, pin, judge);
+  } finally {
+    dispatchApiActivity("sportsmeet:api:end");
   }
 
   const isJson = r.headers.get("content-type")?.includes("application/json");

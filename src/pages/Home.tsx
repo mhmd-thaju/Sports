@@ -487,6 +487,8 @@ function App() {
             {filteredEventsList.map((e: any) => {
               const pts = e.points || (e.category === "Games" ? [10, 6, 0] : [5, 3, 1]);
               const count = s?.counts?.[e.id] || 0;
+              const registrationClosed = e.registrationOpen === false;
+              const resultsPublished = Boolean(s?.results?.[e.id]);
               const isGame = e.category === "Games";
               const backgroundImage = eventBackgrounds[e.name] || eventBackgrounds.Athletics;
 
@@ -513,6 +515,21 @@ function App() {
                       </span>
                     </div>
 
+                    {(registrationClosed || resultsPublished) && (
+                      <div className="mb-3 flex flex-wrap gap-2" aria-label="Event status">
+                        {registrationClosed && (
+                          <span className="inline-flex items-center rounded-full border border-amber-200/40 bg-amber-300/15 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-amber-100">
+                            Registration Closed
+                          </span>
+                        )}
+                        {resultsPublished && (
+                          <span className="inline-flex items-center rounded-full border border-emerald-200/40 bg-emerald-300/15 px-2.5 py-1 text-[10px] font-extrabold uppercase tracking-wider text-emerald-100">
+                            Results Out
+                          </span>
+                        )}
+                      </div>
+                    )}
+
                     <div className="my-5">
                       <h3 className="text-2xl font-extrabold leading-tight text-white">{e.name}</h3>
                       <span className="mt-1 inline-block text-xs font-semibold uppercase tracking-wider text-white/65">{e.type}</span>
@@ -520,7 +537,7 @@ function App() {
 
                     <div className="mt-4 rounded-xl border border-white/15 bg-white/10 p-3">
                       <span className="mb-1 block text-[10px] font-bold uppercase tracking-wider text-white/55">
-                        Predefined Points Scale
+                        Points Scale
                       </span>
                       <div className="flex items-center justify-between gap-2 text-xs font-black text-white">
                         <span>1st: {pts[0]}</span>
@@ -532,15 +549,21 @@ function App() {
                   </div>
 
                   <div className="relative z-10 mt-5 flex items-center justify-between border-t border-white/20 pt-3">
-                    <span className="text-xs font-semibold text-white/65">
-                      {count} {count === 1 ? "entry" : "entries"} registered
-                    </span>
-                    <a
-                      href="#/register"
-                      className="text-xs font-black uppercase tracking-wider text-[#f47b00] hover:text-[#e63516] transition"
-                    >
-                      Register →
-                    </a>
+                    {registrationClosed ? (
+                      <span className="text-xs font-bold uppercase tracking-wider text-amber-100">Registration closed</span>
+                    ) : (
+                      <>
+                        <span className="text-xs font-semibold text-white/65">
+                          {count} {count === 1 ? "entry" : "entries"} registered
+                        </span>
+                        <a
+                          href="#/register"
+                          className="text-xs font-black uppercase tracking-wider text-[#f47b00] hover:text-[#e63516] transition"
+                        >
+                          Register →
+                        </a>
+                      </>
+                    )}
                   </div>
                 </div>
               );
